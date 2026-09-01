@@ -1,8 +1,6 @@
 package com.example.guitartuner.adapters;
 
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.ViewGroup;
+import android.view.*;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -29,28 +27,16 @@ public class LessonsAdapter
 
     @NonNull
     @Override
-    public ViewHolder onCreateViewHolder(
-            @NonNull ViewGroup parent,
-            int viewType) {
-
+    public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View view = LayoutInflater.from(parent.getContext())
-                .inflate(android.R.layout.simple_list_item_2,
-                        parent,
-                        false);
-
+                .inflate(android.R.layout.simple_list_item_1, parent, false);
         return new ViewHolder(view);
     }
 
     @Override
-    public void onBindViewHolder(
-            @NonNull ViewHolder holder,
-            int position) {
-
+    public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         Lesson lesson = lessons.get(position);
-
         holder.textView.setText(lesson.getTitle());
-        holder.subtitleView.setText(lesson.getDifficulty().label);
-
         holder.itemView.setOnClickListener(v -> {
             if (listener != null) listener.onLessonClick(lesson);
         });
@@ -62,14 +48,11 @@ public class LessonsAdapter
     }
 
     static class ViewHolder extends RecyclerView.ViewHolder {
-
         TextView textView;
-        TextView subtitleView;
 
         public ViewHolder(@NonNull View itemView) {
             super(itemView);
             textView = itemView.findViewById(android.R.id.text1);
-            subtitleView = itemView.findViewById(android.R.id.text2);
         }
     }
 }
