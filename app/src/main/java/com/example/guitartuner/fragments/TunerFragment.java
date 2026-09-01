@@ -186,12 +186,12 @@ public class TunerFragment extends Fragment {
 
                 double freq = (peakBin + delta) * sampleRate / n;
 //claude
-                double fftsize = 12 *
+                double semitoneOffset = 12 *
                         (Math.log(freq / 440.0)
                                 / Math.log(2));
 
                 int semitone =
-                        (int) Math.round(fftsize);
+                        (int) Math.round(semitoneOffset);
 
                 double targetFreq = 440.0 *
                         Math.pow(2,
