@@ -134,15 +134,20 @@ public class TunerFragment extends Fragment {
             audioRecord.startRecording();
 
             while (isRunning) {
-
+//claude
                 int read = audioRecord.read(
                         buffer,
                         0,
                         bufferSize
                 );
 
+                // окно Ханна перед FFT — убирает спектральное растекание
                 for (int i = 0; i < read; i++) {
-                    fftData[i] = buffer[i];
+                    double window = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (read - 1));
+                    fftData[i] = buffer[i] * window;
+                }
+                for (int i = read; i < fftData.length; i++) {
+                    fftData[i] = 0;
                 }
 
                 DoubleFFT_1D fft =
@@ -150,31 +155,43 @@ public class TunerFragment extends Fragment {
 
                 fft.realForward(fftData);
 
-                double max = -1;
-                int index = -1;
+                // корректная распаковка комплексных магнитуд
+                int n = bufferSize;
+                double maxMag = -1;
+                int peakBin = -1;
 
-                for (int i = 0; i < fftData.length / 2; i++) {
+                // пропускаем бины ниже ~60 Гц (гул/наводки)
+                int minBin = (int) (60.0 * n / sampleRate);
 
-                    double magnitude =
-                            Math.abs(fftData[i]);
-
-                    if (magnitude > max) {
-                        max = magnitude;
-                        index = i;
+                for (int k = Math.max(2, minBin); k < n / 2 - 1; k++) {
+                    double re = fftData[2 * k];
+                    double im = fftData[2 * k + 1];
+                    double mag = Math.sqrt(re * re + im * im);
+                    if (mag > maxMag) {
+                        maxMag = mag;
+                        peakBin = k;
                     }
                 }
 
-                if (index <= 1) continue;
+                if (peakBin <= 1) continue;
 
-                double freq =
-                        index * sampleRate / bufferSize;
+                // параболическая интерполяция вокруг пика для суб-бинной точности
+                double reM = fftData[2 * (peakBin - 1)], imM = fftData[2 * (peakBin - 1) + 1];
+                double reP = fftData[2 * (peakBin + 1)], imP = fftData[2 * (peakBin + 1) + 1];
+                double magM = Math.sqrt(reM * reM + imM * imM);
+                double magP = Math.sqrt(reP * reP + imP * imP);
 
-                double n = 12 *
+                double denom = (magM - 2 * maxMag + magP);
+                double delta = denom == 0 ? 0 : 0.5 * (magM - magP) / denom;
+
+                double freq = (peakBin + delta) * sampleRate / n;
+//claude
+                double fftsize = 12 *
                         (Math.log(freq / 440.0)
                                 / Math.log(2));
 
                 int semitone =
-                        (int) Math.round(n);
+                        (int) Math.round(fftsize);
 
                 double targetFreq = 440.0 *
                         Math.pow(2,
