@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item
+        android:id="@+id/nav_tuner"
+        android:title="Тюнер"
+        android:icon="@android:drawable/ic_btn_speak_now"/>
+
+    <item
+        android:id="@+id/nav_lessons"
+        android:title="Уроки"
+        android:icon="@android:drawable/ic_menu_agenda"/>
+
+    <item
+        android:id="@+id/nav_songs"
+        android:title="Песни"
+        android:icon="@android:drawable/ic_media_play"/>
+
+</menu>
