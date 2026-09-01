@@ -1,12 +1,13 @@
 package com.example.guitartuner.adapters;
 
-import android.view.*;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.example.guitartuner.R;
 import com.example.guitartuner.models.Lesson;
 
 import java.util.List;
@@ -14,10 +15,16 @@ import java.util.List;
 public class LessonsAdapter
         extends RecyclerView.Adapter<LessonsAdapter.ViewHolder> {
 
-    private final List<Lesson> lessons;
+    public interface OnLessonClickListener {
+        void onLessonClick(Lesson lesson);
+    }
 
-    public LessonsAdapter(List<Lesson> lessons) {
+    private final List<Lesson> lessons;
+    private final OnLessonClickListener listener;
+
+    public LessonsAdapter(List<Lesson> lessons, OnLessonClickListener listener) {
         this.lessons = lessons;
+        this.listener = listener;
     }
 
     @NonNull
@@ -27,7 +34,7 @@ public class LessonsAdapter
             int viewType) {
 
         View view = LayoutInflater.from(parent.getContext())
-                .inflate(android.R.layout.simple_list_item_1,
+                .inflate(android.R.layout.simple_list_item_2,
                         parent,
                         false);
 
@@ -39,9 +46,14 @@ public class LessonsAdapter
             @NonNull ViewHolder holder,
             int position) {
 
-        holder.textView.setText(
-                lessons.get(position).getTitle()
-        );
+        Lesson lesson = lessons.get(position);
+
+        holder.textView.setText(lesson.getTitle());
+        holder.subtitleView.setText(lesson.getDifficulty().label);
+
+        holder.itemView.setOnClickListener(v -> {
+            if (listener != null) listener.onLessonClick(lesson);
+        });
     }
 
     @Override
@@ -52,11 +64,12 @@ public class LessonsAdapter
     static class ViewHolder extends RecyclerView.ViewHolder {
 
         TextView textView;
+        TextView subtitleView;
 
         public ViewHolder(@NonNull View itemView) {
             super(itemView);
-
             textView = itemView.findViewById(android.R.id.text1);
+            subtitleView = itemView.findViewById(android.R.id.text2);
         }
     }
 }
