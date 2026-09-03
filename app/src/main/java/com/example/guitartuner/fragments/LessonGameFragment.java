@@ -56,7 +56,7 @@ public class LessonGameFragment extends Fragment {
 
     private long lastSpawnTime = 0;
     private long lastFrameTime = 0;
-
+// problem here
     public static LessonGameFragment newInstance(Lesson lesson) {
         LessonGameFragment fragment = new LessonGameFragment();
         Bundle args = new Bundle();
