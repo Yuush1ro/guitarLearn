@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        html, body { margin:0; padding:0; background:#1e1e1e; height:100%; }
+        #alphaTab { width:100%; height:100%; overflow:auto; }
+    </style>
+    <!-- скачать с https://alphatab.net и положить рядом с этим файлом -->
+    <script src="alphaTab.min.js"></script>
+</head>
+<body>
+<div id="alphaTab"></div>
+<script>
+    let api = null;
+
+    function initAlphaTab() {
+      api = new alphaTab.AlphaTabApi(document.querySelector('#alphaTab'), {
+        core: { engine: 'svg' }
+      });
+
+      api.error.on((error) => {
+        if (window.Android) Android.onError(String(error));
+      });
+
+      api.scoreLoaded.on((score) => {
+        if (window.Android) Android.onScoreLoaded(score.title || 'Без названия');
+      });
+    }
+
+    function loadSongFromBase64(base64) {
+      try {
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        api.load(bytes);
+      } catch (e) {
+        if (window.Android) Android.onError(String(e));
+      }
+    }
+
+    window.loadSongFromBase64 = loadSongFromBase64;
+    document.addEventListener('DOMContentLoaded', initAlphaTab);
+</script>
+</body>
+</html>

@@ -10,6 +10,7 @@ import android.util.AttributeSet;
 import android.view.View;
 
 import com.example.guitartuner.models.TabNote;
+import com.example.guitartuner.tuner.NoteUtils;
 import com.example.guitartuner.utils.GuitarNoteUtils;
 
 import java.util.ArrayList;
@@ -21,32 +22,47 @@ public class TabView extends View {
         void onNotePlayed(TabNote note, String noteName);
     }
 
+    public interface OnLessonCompleteListener {
+        void onLessonComplete();
+    }
+
     private static final int STRING_COUNT = 6;
     private static final float NOTE_SPACING_DP = 90f;
-    private static final float SCROLL_SPEED_DP_PER_SEC = 60f;
+
+    // сколько мс подряд нужно держать верную ноту, чтобы засчитать попадание
+    private static final long HOLD_MS = 120;
+    // защита от повторного засчитывания той же ноты сразу после попадания
+    private static final long ADVANCE_COOLDOWN_MS = 250;
 
     private List<TabNote> notes = new ArrayList<>();
     private float noteSpacingPx;
-    private float scrollSpeedPxPerSec;
     private final float playheadFractionX = 0.25f;
 
     private Paint stringPaint;
-    private Paint notePaint;
+    private Paint notePaintPending;
+    private Paint notePaintCurrent;
+    private Paint notePaintDone;
     private Paint noteTextPaint;
     private Paint playheadPaint;
 
     private boolean isPlaying = false;
-    private long startTimeMs = 0;
-    private float pausedOffsetPx = 0;
-    private int lastTriggeredIndex = -1;
+    private int currentIndex = 0;
+
+    private float animatedScrollPx = 0f;
+    private float targetScrollPx = 0f;
+
+    private long correctSince = 0L;
+    private long lastAdvanceTime = 0L;
 
     private OnNotePlayedListener listener;
+    private OnLessonCompleteListener completeListener;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable tickRunnable = new Runnable() {
         @Override
         public void run() {
             if (isPlaying) {
+                animatedScrollPx += (targetScrollPx - animatedScrollPx) * 0.25f;
                 invalidate();
                 handler.postDelayed(this, 16);
             }
@@ -61,15 +77,19 @@ public class TabView extends View {
     private void init() {
         float density = getResources().getDisplayMetrics().density;
         noteSpacingPx = NOTE_SPACING_DP * density;
-        scrollSpeedPxPerSec = SCROLL_SPEED_DP_PER_SEC * density;
 
         stringPaint = new Paint();
         stringPaint.setColor(Color.LTGRAY);
         stringPaint.setStrokeWidth(3f);
 
-        notePaint = new Paint();
-        notePaint.setStyle(Paint.Style.FILL);
-        notePaint.setAntiAlias(true);
+        notePaintPending = new Paint(Paint.ANTI_ALIAS_FLAG);
+        notePaintPending.setColor(Color.parseColor("#2E7D32")); // зелёный — впереди
+
+        notePaintCurrent = new Paint(Paint.ANTI_ALIAS_FLAG);
+        notePaintCurrent.setColor(Color.parseColor("#F9A825")); // жёлтый — играть сейчас
+
+        notePaintDone = new Paint(Paint.ANTI_ALIAS_FLAG);
+        notePaintDone.setColor(Color.parseColor("#616161")); // серый — уже сыграно
 
         noteTextPaint = new Paint();
         noteTextPaint.setColor(Color.WHITE);
@@ -85,8 +105,10 @@ public class TabView extends View {
 
     public void setNotes(List<TabNote> notes) {
         this.notes = notes;
-        lastTriggeredIndex = -1;
-        pausedOffsetPx = 0;
+        currentIndex = 0;
+        animatedScrollPx = 0f;
+        targetScrollPx = 0f;
+        correctSince = 0L;
         invalidate();
     }
 
@@ -94,36 +116,76 @@ public class TabView extends View {
         this.listener = listener;
     }
 
+    public void setOnLessonCompleteListener(OnLessonCompleteListener listener) {
+        this.completeListener = listener;
+    }
+
     public void play() {
         if (isPlaying) return;
         isPlaying = true;
-        startTimeMs = System.currentTimeMillis();
         handler.post(tickRunnable);
     }
 
     public void pause() {
-        if (!isPlaying) return;
-        pausedOffsetPx += elapsedScrollPx();
         isPlaying = false;
         handler.removeCallbacks(tickRunnable);
     }
 
     public void reset() {
-        isPlaying = false;
-        handler.removeCallbacks(tickRunnable);
-        pausedOffsetPx = 0;
-        lastTriggeredIndex = -1;
+        pause();
+        currentIndex = 0;
+        animatedScrollPx = 0f;
+        targetScrollPx = 0f;
+        correctSince = 0L;
         invalidate();
     }
 
-    private float elapsedScrollPx() {
-        if (!isPlaying) return 0;
-        long elapsedMs = System.currentTimeMillis() - startTimeMs;
-        return (elapsedMs / 1000f) * scrollSpeedPxPerSec;
+    /** Дёргается из фрагмента при каждой определённой частоте с микрофона. */
+    public void onPitchDetected(double frequencyHz) {
+        if (!isPlaying) return;
+        if (currentIndex >= notes.size()) return;
+
+        long now = System.currentTimeMillis();
+        if (now - lastAdvanceTime < ADVANCE_COOLDOWN_MS) return;
+
+        NoteUtils.NoteInfo detected = NoteUtils.frequencyToNote(frequencyHz);
+        if (detected == null) {
+            correctSince = 0L;
+            return;
+        }
+
+        TabNote expected = notes.get(currentIndex);
+        String expectedFullName = GuitarNoteUtils.getNoteName(
+                expected.getStringNumber(), expected.getFret());
+
+        if (expectedFullName.equals(detected.fullName)) {
+            if (correctSince == 0L) {
+                correctSince = now;
+            } else if (now - correctSince >= HOLD_MS) {
+                advanceToNext(now);
+            }
+        } else {
+            correctSince = 0L;
+        }
     }
 
-    private float getTotalScrollPx() {
-        return pausedOffsetPx + elapsedScrollPx();
+    private void advanceToNext(long now) {
+        TabNote note = notes.get(currentIndex);
+        String fullName = GuitarNoteUtils.getNoteName(note.getStringNumber(), note.getFret());
+
+        if (listener != null) {
+            listener.onNotePlayed(note, fullName);
+        }
+
+        currentIndex++;
+        correctSince = 0L;
+        lastAdvanceTime = now;
+        targetScrollPx = currentIndex * noteSpacingPx;
+
+        if (currentIndex >= notes.size()) {
+            pause();
+            if (completeListener != null) completeListener.onLessonComplete();
+        }
     }
 
     @Override
@@ -144,53 +206,28 @@ public class TabView extends View {
         }
 
         float playheadX = width * playheadFractionX;
-        float scrollPx = getTotalScrollPx();
         float noteRadius = Math.min(stringSpacing * 0.38f, noteSpacingPx * 0.3f);
-
-        int triggerIndex = -1;
 
         for (int i = 0; i < notes.size(); i++) {
             TabNote note = notes.get(i);
-            float noteX = playheadX + (i * noteSpacingPx) - scrollPx;
+            float noteX = playheadX + (i * noteSpacingPx) - animatedScrollPx;
 
-            if (noteX < -noteRadius * 2 || noteX > width + noteRadius * 2) {
-                continue;
-            }
+            if (noteX < -noteRadius * 2 || noteX > width + noteRadius * 2) continue;
 
-            int stringIndex = note.getStringNumber() - 1; // 1..6 -> 0..5, сверху вниз
+            int stringIndex = note.getStringNumber() - 1;
             float noteY = topMargin + stringIndex * stringSpacing;
 
-            boolean isCurrent = noteX <= playheadX && noteX > playheadX - noteSpacingPx / 2f;
-            if (isCurrent) {
-                triggerIndex = i;
-            }
+            Paint paint;
+            if (i < currentIndex) paint = notePaintDone;
+            else if (i == currentIndex) paint = notePaintCurrent;
+            else paint = notePaintPending;
 
-            notePaint.setColor(isCurrent ? Color.parseColor("#D32F2F") : Color.parseColor("#2E7D32"));
-            canvas.drawCircle(noteX, noteY, noteRadius, notePaint);
-            canvas.drawText(
-                    String.valueOf(note.getFret()),
-                    noteX,
-                    noteY + noteTextPaint.getTextSize() / 3f,
-                    noteTextPaint
-            );
+            canvas.drawCircle(noteX, noteY, noteRadius, paint);
+            canvas.drawText(String.valueOf(note.getFret()), noteX,
+                    noteY + noteTextPaint.getTextSize() / 3f, noteTextPaint);
         }
 
         canvas.drawLine(playheadX, 0, playheadX, height, playheadPaint);
-
-        if (isPlaying && triggerIndex != -1 && triggerIndex != lastTriggeredIndex) {
-            lastTriggeredIndex = triggerIndex;
-            TabNote note = notes.get(triggerIndex);
-            if (listener != null) {
-                listener.onNotePlayed(note, GuitarNoteUtils.getNoteName(note.getStringNumber(), note.getFret()));
-            }
-        }
-
-        if (isPlaying && !notes.isEmpty()) {
-            float lastNoteX = playheadX + ((notes.size() - 1) * noteSpacingPx) - scrollPx;
-            if (lastNoteX < playheadX - noteSpacingPx) {
-                pause();
-            }
-        }
     }
 
     @Override
