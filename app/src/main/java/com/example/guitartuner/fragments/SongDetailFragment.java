@@ -49,7 +49,7 @@ public class SongDetailFragment extends Fragment {
             title = args.getString(ARG_TITLE, "Песня");
         }
     }
-
+//error here
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
