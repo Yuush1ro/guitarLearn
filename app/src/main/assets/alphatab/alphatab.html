@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        html, body { margin:0; padding:0; background:#1e1e1e; height:100%; }
+        html, body { margin:0; padding:0; background:#ffffff; height:100%; }
         #alphaTab { width:100%; height:100%; overflow:auto; }
     </style>
     <!-- скачать с https://alphatab.net и положить рядом с этим файлом -->
@@ -17,7 +17,13 @@
 
     function initAlphaTab() {
       api = new alphaTab.AlphaTabApi(document.querySelector('#alphaTab'), {
-        core: { engine: 'svg' }
+        core: {
+          engine: 'svg',
+          // в WebView воркеры из assets не создаются — рендерим в основном потоке
+          useWorkers: false,
+          // шрифт Bravura (нотные символы) лежит в assets/alphatab/font/
+          fontDirectory: 'font/'
+        }
       });
 
       api.error.on((error) => {

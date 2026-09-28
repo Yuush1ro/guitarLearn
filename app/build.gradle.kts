@@ -46,6 +46,7 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.2.1")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     implementation("androidx.fragment:fragment:1.8.2")
+    implementation("androidx.webkit:webkit:1.12.1")
     implementation("com.github.wendykierp:JTransforms:3.1")
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
