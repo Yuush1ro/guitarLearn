@@ -131,6 +131,11 @@ public class TabView extends View {
         handler.removeCallbacks(tickRunnable);
     }
 
+    /** Все ноты урока сыграны. */
+    public boolean isComplete() {
+        return currentIndex >= notes.size();
+    }
+
     public void reset() {
         pause();
         currentIndex = 0;

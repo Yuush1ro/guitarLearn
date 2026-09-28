@@ -3,16 +3,17 @@ package com.example.guitartuner.fragments;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
-import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 
 import com.example.guitartuner.R;
@@ -29,7 +30,6 @@ public class LessonDetailFragment extends Fragment {
     private static final String ARG_TITLE = "arg_title";
     private static final String ARG_STRINGS = "arg_strings";
     private static final String ARG_FRETS = "arg_frets";
-    private static final int REQ_RECORD_AUDIO = 3;
 
     private TabView tabView;
     private TextView titleView;
@@ -39,8 +39,20 @@ public class LessonDetailFragment extends Fragment {
     private String title;
     private List<TabNote> notes;
 
-    private PitchDetector pitchDetector;
-    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    // колбэки приходят в главном потоке, можно сразу трогать View
+    private final PitchDetector pitchDetector =
+            new PitchDetector(frequency -> tabView.onPitchDetected(frequency));
+
+    private final ActivityResultLauncher<String> permissionLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
+                if (granted) {
+                    startLesson();
+                } else {
+                    Toast.makeText(requireContext(),
+                            "Без доступа к микрофону урок не работает",
+                            Toast.LENGTH_SHORT).show();
+                }
+            });
 
     public static LessonDetailFragment newInstance(Lesson lesson) {
         LessonDetailFragment fragment = new LessonDetailFragment();
@@ -101,59 +113,59 @@ public class LessonDetailFragment extends Fragment {
                 currentNoteView.setText("Сыграно: " + noteName));
 
         tabView.setOnLessonCompleteListener(() -> {
+            pitchDetector.stop();
             currentNoteView.setText("Урок завершён!");
             btnPlay.setText("ЕЩЁ РАЗ");
-            stopListening();
         });
 
         btnPlay.setOnClickListener(v -> {
-            tabView.reset();
-            currentNoteView.setText("—");
-            btnPlay.setText("ИГРАТЬ");
-            startListening();
+            if (pitchDetector.isRunning()) {
+                pauseLesson();
+            } else {
+                startLesson();
+            }
         });
 
         return view;
     }
 
-    private void startListening() {
-
-        if (ActivityCompat.checkSelfPermission(
-                requireContext(), Manifest.permission.RECORD_AUDIO
-        ) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_RECORD_AUDIO);
+    /** Запускает урок: с начала, если он пройден, иначе продолжает с текущей ноты. */
+    private void startLesson() {
+        if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO);
             return;
         }
 
-        if (pitchDetector != null) return;
+        if (tabView.isComplete()) {
+            tabView.reset();
+            currentNoteView.setText("—");
+        }
 
-        pitchDetector = new PitchDetector(frequency ->
-                mainHandler.post(() -> tabView.onPitchDetected(frequency)));
         pitchDetector.start();
         tabView.play();
+        btnPlay.setText("СТОП");
     }
 
-    private void stopListening() {
-        if (pitchDetector != null) {
-            pitchDetector.stop();
-            pitchDetector = null;
+    private void pauseLesson() {
+        pitchDetector.stop();
+        if (tabView != null) {
+            tabView.pause();
+            btnPlay.setText(tabView.isComplete() ? "ЕЩЁ РАЗ" : "ИГРАТЬ");
         }
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQ_RECORD_AUDIO
-                && grantResults.length > 0
-                && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            startListening();
-        }
+    public void onPause() {
+        super.onPause();
+        // не держим микрофон, когда экран не виден
+        pauseLesson();
     }
 
     @Override
     public void onDestroyView() {
         super.onDestroyView();
-        tabView.pause();
-        stopListening();
+        pitchDetector.stop();
+        tabView = null;
     }
 }

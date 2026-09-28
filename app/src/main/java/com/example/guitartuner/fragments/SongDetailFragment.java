@@ -19,6 +19,8 @@ import com.example.guitartuner.R;
 
 import java.io.File;
 import java.nio.file.Files;
+import java.io.FileInputStream;
+import java.io.ByteArrayOutputStream;
 
 public class SongDetailFragment extends Fragment {
 
@@ -48,7 +50,7 @@ public class SongDetailFragment extends Fragment {
             filePath = args.getString(ARG_PATH);
             title = args.getString(ARG_TITLE, "Песня");
         }
-    }
+    }SongDetailFragment
 //error here
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -78,7 +80,7 @@ public class SongDetailFragment extends Fragment {
         return view;
     }
 
-    private void loadSongIntoAlphaTab() {
+    /* private void loadSongIntoAlphaTab() {
         if (filePath == null) return;
 
         try {
@@ -87,6 +89,42 @@ public class SongDetailFragment extends Fragment {
             webView.evaluateJavascript("window.loadSongFromBase64('" + base64 + "');", null);
         } catch (Exception e) {
             Toast.makeText(getContext(), "Ошибка чтения файла: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    } */
+
+    private void loadSongIntoAlphaTab() {
+        if (filePath == null) return;
+
+        try {
+            File file = new File(filePath);
+
+            FileInputStream inputStream = new FileInputStream(file);
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
+            }
+
+            inputStream.close();
+
+            byte[] bytes = outputStream.toByteArray();
+
+            String base64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
+
+            webView.evaluateJavascript(
+                    "window.loadSongFromBase64('" + base64 + "');",
+                    null
+            );
+
+        } catch (Exception e) {
+            Toast.makeText(
+                    getContext(),
+                    "Ошибка чтения файла: " + e.getMessage(),
+                    Toast.LENGTH_LONG
+            ).show();
         }
     }
 
