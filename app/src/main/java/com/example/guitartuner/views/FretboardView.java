@@ -4,19 +4,25 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
 
+import com.example.guitartuner.models.TabNote;
 import com.example.guitartuner.tuner.NoteUtils;
 import com.example.guitartuner.utils.GuitarNoteUtils;
 
 /**
  * Гриф гитары (открытые струны + 12 ладов) с точками нот.
  *
- * Показывает, где на грифе можно сыграть целевую ноту (крупные оранжевые точки)
- * и остальные ноты выбранной гаммы (мелкие точки). В режиме участка нажатия
- * на гриф задают видимый диапазон ладов: первое — начало, второе — конец.
+ * Два способа подсветки:
+ * - по названию ноты (тренировка): все места, где можно сыграть целевую ноту
+ *   (крупные оранжевые точки со свечением), и остальные ноты гаммы (мелкие точки);
+ * - по конкретной позиции (уроки): текущая нота урока со свечением и контур следующей.
+ *
+ * В режиме участка нажатия на гриф задают видимый диапазон ладов:
+ * первое — начало, второе — конец.
  */
 public class FretboardView extends View {
 
@@ -44,6 +50,25 @@ public class FretboardView extends View {
     private final Paint targetTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint scaleTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint fretNumberPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint nextMarkerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint nextMarkerTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+    private static final long PULSE_PERIOD_MS = 1200;
+
+    // позиции для уроков: текущая и следующая нота; null — нет
+    private TabNote lessonCurrent;
+    private TabNote lessonNext;
+
+    private boolean pulseScheduled = false;
+    private final Runnable pulseFrame = new Runnable() {
+        @Override
+        public void run() {
+            pulseScheduled = false;
+            invalidate();
+            schedulePulse();
+        }
+    };
 
     private int targetPitchClass = -1;
     private final boolean[] scalePitchClasses = new boolean[12];
@@ -94,6 +119,58 @@ public class FretboardView extends View {
         fretNumberPaint.setColor(Color.GRAY);
         fretNumberPaint.setTextAlign(Paint.Align.CENTER);
         fretNumberPaint.setTextSize(dp(11));
+
+        glowPaint.setColor(Color.parseColor("#FFB74D"));
+
+        nextMarkerPaint.setColor(Color.parseColor("#90CAF9"));
+        nextMarkerPaint.setStyle(Paint.Style.STROKE);
+        nextMarkerPaint.setStrokeWidth(dp(2));
+
+        nextMarkerTextPaint.setColor(Color.parseColor("#E3F2FD"));
+        nextMarkerTextPaint.setTextAlign(Paint.Align.CENTER);
+        nextMarkerTextPaint.setFakeBoldText(true);
+    }
+
+    /** Позиции для уроков: current светится, next показан контуром. null — не показывать. */
+    public void setLessonMarkers(TabNote current, TabNote next) {
+        lessonCurrent = current;
+        lessonNext = next;
+        invalidate();
+        schedulePulse();
+    }
+
+    private boolean hasGlow() {
+        return targetPitchClass >= 0 || lessonCurrent != null;
+    }
+
+    private void schedulePulse() {
+        if (pulseScheduled || !hasGlow() || !isAttachedToWindow()) return;
+        pulseScheduled = true;
+        postOnAnimationDelayed(pulseFrame, 32);
+    }
+
+    // 0..1..0 с периодом PULSE_PERIOD_MS
+    private float pulse() {
+        float phase = (SystemClock.uptimeMillis() % PULSE_PERIOD_MS) / (float) PULSE_PERIOD_MS;
+        return phase < 0.5f ? phase * 2f : (1f - phase) * 2f;
+    }
+
+    private void drawGlow(Canvas canvas, float x, float y, float radius, float pulse) {
+        glowPaint.setAlpha((int) (120 * (1f - 0.6f * pulse)));
+        canvas.drawCircle(x, y, radius * (1.3f + 0.25f * pulse), glowPaint);
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        schedulePulse();
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        removeCallbacks(pulseFrame);
+        pulseScheduled = false;
     }
 
     private float dp(float value) {
@@ -104,6 +181,7 @@ public class FretboardView extends View {
     public void setTargetPitchClass(int pitchClass) {
         targetPitchClass = pitchClass;
         invalidate();
+        schedulePulse();
     }
 
     public void setScalePitchClasses(int[] pitchClasses) {
@@ -216,9 +294,11 @@ public class FretboardView extends View {
                     (regionEnd + 1) * cellW, boardBottom, regionBorderPaint);
         }
 
+        float targetRadius = Math.min(cellW, stringSpacing) * 0.42f;
+        float pulse = pulse();
+
         // точки нот
         if (showNotes) {
-            float targetRadius = Math.min(cellW, stringSpacing) * 0.42f;
             float scaleRadius = Math.min(cellW, stringSpacing) * 0.30f;
             targetTextPaint.setTextSize(targetRadius * 1.1f);
             scaleTextPaint.setTextSize(scaleRadius * 1.0f);
@@ -233,6 +313,7 @@ public class FretboardView extends View {
                     String name = NoteUtils.NOTE_NAMES[pc];
 
                     if (pc == targetPitchClass) {
+                        drawGlow(canvas, x, y, targetRadius, pulse);
                         canvas.drawCircle(x, y, targetRadius, targetPaint);
                         canvas.drawText(name, x, y + targetTextPaint.getTextSize() / 3f, targetTextPaint);
                     } else if (scalePitchClasses[pc]) {
@@ -243,11 +324,36 @@ public class FretboardView extends View {
             }
         }
 
+        // позиции урока: следующая нота контуром, текущая — со свечением
+        if (lessonNext != null) {
+            float x = fretCenterX(lessonNext.getFret());
+            float y = top + (lessonNext.getStringNumber() - 1) * stringSpacing;
+            float r = targetRadius * 0.85f;
+            canvas.drawCircle(x, y, r, nextMarkerPaint);
+            nextMarkerTextPaint.setTextSize(r * 1.0f);
+            canvas.drawText(noteName(lessonNext), x, y + nextMarkerTextPaint.getTextSize() / 3f,
+                    nextMarkerTextPaint);
+        }
+        if (lessonCurrent != null) {
+            float x = fretCenterX(lessonCurrent.getFret());
+            float y = top + (lessonCurrent.getStringNumber() - 1) * stringSpacing;
+            drawGlow(canvas, x, y, targetRadius, pulse);
+            canvas.drawCircle(x, y, targetRadius, targetPaint);
+            targetTextPaint.setTextSize(targetRadius * 1.1f);
+            canvas.drawText(noteName(lessonCurrent), x, y + targetTextPaint.getTextSize() / 3f,
+                    targetTextPaint);
+        }
+
         // номера ладов
         float numbersY = height - dp(4);
         for (int fret = 0; fret <= FRET_COUNT; fret++) {
             canvas.drawText(String.valueOf(fret), fretCenterX(fret), numbersY, fretNumberPaint);
         }
+    }
+
+    private static String noteName(TabNote note) {
+        int pc = GuitarNoteUtils.getMidi(note.getStringNumber(), note.getFret()) % 12;
+        return NoteUtils.NOTE_NAMES[pc];
     }
 
     @Override

@@ -4,103 +4,100 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import android.os.Handler;
-import android.os.Looper;
+import android.graphics.RectF;
+import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.view.View;
 
 import com.example.guitartuner.models.TabNote;
-import com.example.guitartuner.tuner.NoteUtils;
-import com.example.guitartuner.utils.GuitarNoteUtils;
 
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Горизонтальная лента бегущих нот в виде табулатуры.
+ *
+ * Только рисует: какую ноту играть сейчас, решает фрагмент через setCurrentIndex().
+ * Текущая нота стоит на линии воспроизведения и пульсирует свечением.
+ */
 public class TabView extends View {
 
-    public interface OnNotePlayedListener {
-        void onNotePlayed(TabNote note, String noteName);
-    }
-
-    public interface OnLessonCompleteListener {
-        void onLessonComplete();
-    }
-
     private static final int STRING_COUNT = 6;
-    private static final float NOTE_SPACING_DP = 90f;
+    private static final String[] STRING_LABELS = {"e", "B", "G", "D", "A", "E"};
+    private static final float NOTE_SPACING_DP = 56f;
+    private static final long PULSE_PERIOD_MS = 1200;
 
-    // сколько мс подряд нужно держать верную ноту, чтобы засчитать попадание
-    private static final long HOLD_MS = 120;
-    // защита от повторного засчитывания той же ноты сразу после попадания
-    private static final long ADVANCE_COOLDOWN_MS = 250;
+    private final float density;
+    private final float noteSpacingPx;
+
+    private final Paint backgroundPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint stringPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint labelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint playheadGlowPaint = new Paint();
+    private final Paint playheadPaint = new Paint();
+    private final Paint donePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint upcomingPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint currentPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint doneTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint upcomingTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint currentTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF rect = new RectF();
 
     private List<TabNote> notes = new ArrayList<>();
-    private float noteSpacingPx;
-    private final float playheadFractionX = 0.25f;
-
-    private Paint stringPaint;
-    private Paint notePaintPending;
-    private Paint notePaintCurrent;
-    private Paint notePaintDone;
-    private Paint noteTextPaint;
-    private Paint playheadPaint;
-
-    private boolean isPlaying = false;
     private int currentIndex = 0;
+    private boolean playing = false;
 
     private float animatedScrollPx = 0f;
     private float targetScrollPx = 0f;
+    private boolean frameScheduled = false;
 
-    private long correctSince = 0L;
-    private long lastAdvanceTime = 0L;
-
-    private OnNotePlayedListener listener;
-    private OnLessonCompleteListener completeListener;
-
-    private final Handler handler = new Handler(Looper.getMainLooper());
-    private final Runnable tickRunnable = new Runnable() {
+    private final Runnable frame = new Runnable() {
         @Override
         public void run() {
-            if (isPlaying) {
-                animatedScrollPx += (targetScrollPx - animatedScrollPx) * 0.25f;
-                invalidate();
-                handler.postDelayed(this, 16);
-            }
+            frameScheduled = false;
+            float diff = targetScrollPx - animatedScrollPx;
+            if (Math.abs(diff) < 0.5f) animatedScrollPx = targetScrollPx;
+            else animatedScrollPx += diff * 0.2f;
+            invalidate();
+            if (playing || animatedScrollPx != targetScrollPx) scheduleFrame();
         }
     };
 
     public TabView(Context context, AttributeSet attrs) {
         super(context, attrs);
-        init();
-    }
-
-    private void init() {
-        float density = getResources().getDisplayMetrics().density;
+        density = getResources().getDisplayMetrics().density;
         noteSpacingPx = NOTE_SPACING_DP * density;
 
-        stringPaint = new Paint();
-        stringPaint.setColor(Color.LTGRAY);
-        stringPaint.setStrokeWidth(3f);
+        backgroundPaint.setColor(Color.parseColor("#263238"));
 
-        notePaintPending = new Paint(Paint.ANTI_ALIAS_FLAG);
-        notePaintPending.setColor(Color.parseColor("#2E7D32")); // зелёный — впереди
+        stringPaint.setColor(Color.parseColor("#78909C"));
 
-        notePaintCurrent = new Paint(Paint.ANTI_ALIAS_FLAG);
-        notePaintCurrent.setColor(Color.parseColor("#F9A825")); // жёлтый — играть сейчас
+        labelPaint.setColor(Color.parseColor("#B0BEC5"));
+        labelPaint.setTextAlign(Paint.Align.CENTER);
+        labelPaint.setTextSize(dp(13));
+        labelPaint.setFakeBoldText(true);
 
-        notePaintDone = new Paint(Paint.ANTI_ALIAS_FLAG);
-        notePaintDone.setColor(Color.parseColor("#616161")); // серый — уже сыграно
+        playheadGlowPaint.setColor(Color.argb(45, 255, 152, 0));
+        playheadPaint.setColor(Color.parseColor("#FF9800"));
+        playheadPaint.setStrokeWidth(dp(2));
 
-        noteTextPaint = new Paint();
-        noteTextPaint.setColor(Color.WHITE);
-        noteTextPaint.setTextSize(28f);
-        noteTextPaint.setTextAlign(Paint.Align.CENTER);
-        noteTextPaint.setAntiAlias(true);
-        noteTextPaint.setFakeBoldText(true);
+        donePaint.setColor(Color.parseColor("#455A64"));
+        upcomingPaint.setColor(Color.parseColor("#90CAF9"));
+        currentPaint.setColor(Color.parseColor("#FF9800"));
+        glowPaint.setColor(Color.parseColor("#FF9800"));
 
-        playheadPaint = new Paint();
-        playheadPaint.setColor(Color.RED);
-        playheadPaint.setStrokeWidth(5f);
+        doneTextPaint.setColor(Color.parseColor("#90A4AE"));
+        upcomingTextPaint.setColor(Color.parseColor("#0D47A1"));
+        currentTextPaint.setColor(Color.BLACK);
+        for (Paint p : new Paint[]{doneTextPaint, upcomingTextPaint, currentTextPaint}) {
+            p.setTextAlign(Paint.Align.CENTER);
+            p.setFakeBoldText(true);
+        }
+    }
+
+    private float dp(float value) {
+        return value * density;
     }
 
     public void setNotes(List<TabNote> notes) {
@@ -108,136 +105,103 @@ public class TabView extends View {
         currentIndex = 0;
         animatedScrollPx = 0f;
         targetScrollPx = 0f;
-        correctSince = 0L;
         invalidate();
     }
 
-    public void setOnNotePlayedListener(OnNotePlayedListener listener) {
-        this.listener = listener;
+    /** Индекс ноты, которую нужно играть сейчас; notes.size() — урок пройден. */
+    public void setCurrentIndex(int index) {
+        currentIndex = index;
+        targetScrollPx = Math.min(index, Math.max(0, notes.size() - 1)) * noteSpacingPx;
+        scheduleFrame();
     }
 
-    public void setOnLessonCompleteListener(OnLessonCompleteListener listener) {
-        this.completeListener = listener;
+    /** Пока идёт урок, текущая нота пульсирует. */
+    public void setPlaying(boolean playing) {
+        this.playing = playing;
+        scheduleFrame();
     }
 
-    public void play() {
-        if (isPlaying) return;
-        isPlaying = true;
-        handler.post(tickRunnable);
-    }
-
-    public void pause() {
-        isPlaying = false;
-        handler.removeCallbacks(tickRunnable);
-    }
-
-    /** Все ноты урока сыграны. */
-    public boolean isComplete() {
-        return currentIndex >= notes.size();
-    }
-
-    public void reset() {
-        pause();
-        currentIndex = 0;
-        animatedScrollPx = 0f;
-        targetScrollPx = 0f;
-        correctSince = 0L;
-        invalidate();
-    }
-
-    /** Дёргается из фрагмента при каждой определённой частоте с микрофона. */
-    public void onPitchDetected(double frequencyHz) {
-        if (!isPlaying) return;
-        if (currentIndex >= notes.size()) return;
-
-        long now = System.currentTimeMillis();
-        if (now - lastAdvanceTime < ADVANCE_COOLDOWN_MS) return;
-
-        NoteUtils.NoteInfo detected = NoteUtils.frequencyToNote(frequencyHz);
-        if (detected == null) {
-            correctSince = 0L;
-            return;
-        }
-
-        TabNote expected = notes.get(currentIndex);
-        String expectedFullName = GuitarNoteUtils.getNoteName(
-                expected.getStringNumber(), expected.getFret());
-
-        if (expectedFullName.equals(detected.fullName)) {
-            if (correctSince == 0L) {
-                correctSince = now;
-            } else if (now - correctSince >= HOLD_MS) {
-                advanceToNext(now);
-            }
-        } else {
-            correctSince = 0L;
-        }
-    }
-
-    private void advanceToNext(long now) {
-        TabNote note = notes.get(currentIndex);
-        String fullName = GuitarNoteUtils.getNoteName(note.getStringNumber(), note.getFret());
-
-        if (listener != null) {
-            listener.onNotePlayed(note, fullName);
-        }
-
-        currentIndex++;
-        correctSince = 0L;
-        lastAdvanceTime = now;
-        targetScrollPx = currentIndex * noteSpacingPx;
-
-        if (currentIndex >= notes.size()) {
-            pause();
-            if (completeListener != null) completeListener.onLessonComplete();
-        }
+    private void scheduleFrame() {
+        if (frameScheduled) return;
+        frameScheduled = true;
+        postOnAnimation(frame);
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
 
-        int width = getWidth();
-        int height = getHeight();
+        float width = getWidth();
+        float height = getHeight();
         if (width == 0 || height == 0) return;
 
-        float topMargin = height * 0.12f;
-        float bottomMargin = height * 0.12f;
-        float stringSpacing = (height - topMargin - bottomMargin) / (STRING_COUNT - 1);
+        // фон ленты
+        rect.set(0, 0, width, height);
+        canvas.drawRoundRect(rect, dp(12), dp(12), backgroundPaint);
 
+        float gutter = dp(28);
+        float top = dp(16);
+        float bottom = height - dp(16);
+        float stringSpacing = (bottom - top) / (STRING_COUNT - 1);
+
+        // струны и их подписи; 1-я (e) сверху, как в табулатуре
         for (int s = 0; s < STRING_COUNT; s++) {
-            float y = topMargin + s * stringSpacing;
-            canvas.drawLine(0, y, width, y, stringPaint);
+            float y = top + s * stringSpacing;
+            stringPaint.setStrokeWidth(dp(1f + s * 0.3f));
+            canvas.drawLine(gutter, y, width - dp(8), y, stringPaint);
+            canvas.drawText(STRING_LABELS[s], gutter / 2f, y + labelPaint.getTextSize() / 3f, labelPaint);
         }
 
-        float playheadX = width * playheadFractionX;
-        float noteRadius = Math.min(stringSpacing * 0.38f, noteSpacingPx * 0.3f);
+        float playheadX = gutter + (width - gutter) * 0.22f;
+        canvas.drawRect(playheadX - dp(8), dp(4), playheadX + dp(8), height - dp(4), playheadGlowPaint);
+        canvas.drawLine(playheadX, dp(4), playheadX, height - dp(4), playheadPaint);
+
+        float radius = Math.min(stringSpacing * 0.45f, noteSpacingPx * 0.36f);
+        float pulse = pulse();
+
+        canvas.save();
+        canvas.clipRect(gutter, 0, width, height);
 
         for (int i = 0; i < notes.size(); i++) {
+            float x = playheadX + i * noteSpacingPx - animatedScrollPx;
+            if (x < gutter - radius * 2 || x > width + radius * 2) continue;
+
             TabNote note = notes.get(i);
-            float noteX = playheadX + (i * noteSpacingPx) - animatedScrollPx;
+            float y = top + (note.getStringNumber() - 1) * stringSpacing;
+            String fret = String.valueOf(note.getFret());
 
-            if (noteX < -noteRadius * 2 || noteX > width + noteRadius * 2) continue;
-
-            int stringIndex = note.getStringNumber() - 1;
-            float noteY = topMargin + stringIndex * stringSpacing;
-
-            Paint paint;
-            if (i < currentIndex) paint = notePaintDone;
-            else if (i == currentIndex) paint = notePaintCurrent;
-            else paint = notePaintPending;
-
-            canvas.drawCircle(noteX, noteY, noteRadius, paint);
-            canvas.drawText(String.valueOf(note.getFret()), noteX,
-                    noteY + noteTextPaint.getTextSize() / 3f, noteTextPaint);
+            if (i == currentIndex) {
+                glowPaint.setAlpha((int) (110 * (1f - 0.6f * pulse)));
+                canvas.drawCircle(x, y, radius * (1.3f + 0.25f * pulse), glowPaint);
+                drawNote(canvas, x, y, radius, fret, currentPaint, currentTextPaint);
+            } else if (i < currentIndex) {
+                drawNote(canvas, x, y, radius * 0.8f, fret, donePaint, doneTextPaint);
+            } else {
+                drawNote(canvas, x, y, radius, fret, upcomingPaint, upcomingTextPaint);
+            }
         }
 
-        canvas.drawLine(playheadX, 0, playheadX, height, playheadPaint);
+        canvas.restore();
+    }
+
+    private void drawNote(Canvas canvas, float x, float y, float radius, String text,
+                          Paint fill, Paint textPaint) {
+        canvas.drawCircle(x, y, radius, fill);
+        textPaint.setTextSize(radius * 1.1f);
+        canvas.drawText(text, x, y + textPaint.getTextSize() / 3f, textPaint);
+    }
+
+    // 0..1..0 с периодом PULSE_PERIOD_MS; 0, если урок не идёт
+    private float pulse() {
+        if (!playing) return 0f;
+        float phase = (SystemClock.uptimeMillis() % PULSE_PERIOD_MS) / (float) PULSE_PERIOD_MS;
+        return phase < 0.5f ? phase * 2f : (1f - phase) * 2f;
     }
 
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
-        handler.removeCallbacks(tickRunnable);
+        removeCallbacks(frame);
+        frameScheduled = false;
     }
 }

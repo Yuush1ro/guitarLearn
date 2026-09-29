@@ -8,8 +8,11 @@ import java.util.List;
 public class Lesson {
 
     private final String title;
+    private final String description;
     private final List<TabNote> notes;
     private final LessonDifficulty difficulty;
+    // true — ноты урока строятся по выбранному участку грифа (хроматический каскад)
+    private final boolean regionSelectable;
 
     public Lesson(String title) {
         this(title, new ArrayList<>());
@@ -20,13 +23,24 @@ public class Lesson {
     }
 
     public Lesson(String title, List<TabNote> notes, LessonDifficulty difficulty) {
+        this(title, "", notes, difficulty, false);
+    }
+
+    public Lesson(String title, String description, List<TabNote> notes,
+                  LessonDifficulty difficulty, boolean regionSelectable) {
         this.title = title;
+        this.description = description;
         this.notes = notes;
         this.difficulty = difficulty;
+        this.regionSelectable = regionSelectable;
     }
 
     public String getTitle() {
         return title;
+    }
+
+    public String getDescription() {
+        return description;
     }
 
     public List<TabNote> getNotes() {
@@ -35,6 +49,10 @@ public class Lesson {
 
     public LessonDifficulty getDifficulty() {
         return difficulty;
+    }
+
+    public boolean isRegionSelectable() {
+        return regionSelectable;
     }
 
     // Имена нот без октавы — для старой мини-игры с падающими нотами
