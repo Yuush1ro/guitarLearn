@@ -6,6 +6,7 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -23,6 +24,8 @@ import com.example.guitartuner.R;
 import com.example.guitartuner.models.Lesson;
 import com.example.guitartuner.models.LessonLibrary;
 import com.example.guitartuner.models.TabNote;
+import com.example.guitartuner.songs.SongStore;
+import com.example.guitartuner.tuner.ChordMatcher;
 import com.example.guitartuner.tuner.NoteUtils;
 import com.example.guitartuner.tuner.PitchDetector;
 import com.example.guitartuner.utils.GuitarNoteUtils;
@@ -30,7 +33,9 @@ import com.example.guitartuner.views.FretboardView;
 import com.example.guitartuner.views.TabView;
 import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.slider.RangeSlider;
+import com.google.android.material.slider.Slider;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -44,11 +49,16 @@ public class LessonDetailFragment extends Fragment {
     private static final String ARG_STRINGS = "arg_strings";
     private static final String ARG_FRETS = "arg_frets";
     private static final String ARG_REGION_SELECTABLE = "arg_region_selectable";
+    private static final String ARG_SONG_PATH = "arg_song_path";
 
     // сколько мс подряд нужно слышать верную ноту, чтобы засчитать
     private static final long HOLD_MS = 120;
     // защита от повторного засчитывания сразу после попадания
     private static final long ADVANCE_COOLDOWN_MS = 250;
+    // во сколько раз должна вырасти громкость, чтобы считать это новым щипком струны
+    private static final double ATTACK_RATIO = 1.5;
+    // аккорд засчитывается после стольких кадров подряд (~46 мс каждый) с совпадением
+    private static final int CHORD_FRAMES = 2;
 
     private static final String PREFS = "lessons";
     private static final String KEY_VIEW_MODE = "view_mode_fretboard";
@@ -68,6 +78,8 @@ public class LessonDetailFragment extends Fragment {
     private FretboardView fretboardView;
     private Button btnPlay;
     private View flashOverlay;
+    private View seekPanel;
+    private Slider seekSlider;
 
     private String title;
     private List<TabNote> notes = new ArrayList<>();
@@ -75,21 +87,55 @@ public class LessonDetailFragment extends Fragment {
     private int regionStart = LessonLibrary.DEFAULT_REGION_START;
     private int regionEnd = LessonLibrary.DEFAULT_REGION_END;
 
+    // для песен: подписи струн по строю и сколько ладов показывать на грифе
+    private String[] stringLabels;
+    private int fretCount = FretboardView.FRET_COUNT;
+    // для песен: номер такта (с 0) каждого шага; null — тактов нет (уроки, старые песни)
+    private int[] bars;
+
     private int currentIndex = 0;
     private long correctSince = 0L;
     private long lastAdvanceTime = 0L;
 
+    // следующая нота совпадает с только что сыгранной: ждём нового щипка струны,
+    // иначе ещё звучащая струна засчитала бы её сама
+    private boolean needsReattack = false;
+    private double minLevelSinceAdvance = Double.MAX_VALUE;
+
+    // сколько кадров подряд хромаграмма совпадает с ожидаемым аккордом
+    private int chordMatchedFrames = 0;
+
+    // хромаграмма нужна для аккордов — считаем её всегда, это один FFT на кадр
     private final PitchDetector pitchDetector = new PitchDetector(new PitchDetector.PitchListener() {
         @Override
         public void onPitchDetected(double frequencyHz) {
-            onPitch(frequencyHz);
+            // не вызывается: PitchDetector передаёт и громкость
+        }
+
+        @Override
+        public void onPitchDetected(double frequencyHz, double level) {
+            onPitch(frequencyHz, level);
+        }
+
+        @Override
+        public void onChroma(double[] chroma, double level) {
+            onChromaFrame(chroma, level);
+        }
+
+        @Override
+        public void onNoPitch() {
+            // для аккорда это нормально: YIN не находит одну ноту, работает хромаграмма
+            correctSince = 0L;
         }
 
         @Override
         public void onSilence() {
             correctSince = 0L;
+            chordMatchedFrames = 0;
+            // струна затихла — следующий звук точно новый щипок
+            needsReattack = false;
         }
-    });
+    }, true);
 
     private final ActivityResultLauncher<String> permissionLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
@@ -125,6 +171,16 @@ public class LessonDetailFragment extends Fragment {
         return fragment;
     }
 
+    /** Песня, сконвертированная из Guitar Pro (см. SongStore). */
+    public static LessonDetailFragment newInstanceForSong(File convertedSong) {
+        LessonDetailFragment fragment = new LessonDetailFragment();
+        Bundle args = new Bundle();
+        // ноты песни могут исчисляться тысячами — передаём путь, а не сами ноты
+        args.putString(ARG_SONG_PATH, convertedSong.getAbsolutePath());
+        fragment.setArguments(args);
+        return fragment;
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -135,7 +191,10 @@ public class LessonDetailFragment extends Fragment {
         title = args.getString(ARG_TITLE, "");
         regionSelectable = args.getBoolean(ARG_REGION_SELECTABLE, false);
 
-        if (regionSelectable) {
+        String songPath = args.getString(ARG_SONG_PATH);
+        if (songPath != null) {
+            loadSong(new File(songPath));
+        } else if (regionSelectable) {
             SharedPreferences p = prefs();
             regionStart = p.getInt(KEY_REGION_START, LessonLibrary.DEFAULT_REGION_START);
             regionEnd = p.getInt(KEY_REGION_END, LessonLibrary.DEFAULT_REGION_END);
@@ -149,6 +208,31 @@ public class LessonDetailFragment extends Fragment {
                 }
             }
         }
+    }
+
+    private void loadSong(File file) {
+        SongStore.ConvertedSong song = SongStore.load(file);
+        if (song == null) {
+            title = "Не удалось открыть песню";
+            return;
+        }
+
+        title = song.trackName.isEmpty() ? song.title : song.title + " · " + song.trackName;
+        notes = song.notes;
+        bars = song.bars;
+
+        stringLabels = new String[song.tuning.length];
+        for (int i = 0; i < song.tuning.length; i++) {
+            String name = GuitarNoteUtils.pitchClassName(song.tuning[i]);
+            // 1-ю струну пишем строчной, как в табулатуре (e B G D A E)
+            stringLabels[i] = i == 0 ? name.toLowerCase() : name;
+        }
+
+        int maxFret = 0;
+        for (TabNote step : notes) {
+            for (TabNote note : step.getNotes()) maxFret = Math.max(maxFret, note.getFret());
+        }
+        fretCount = maxFret;
     }
 
     @Override
@@ -169,9 +253,15 @@ public class LessonDetailFragment extends Fragment {
         fretboardView = view.findViewById(R.id.fretboardView);
         btnPlay = view.findViewById(R.id.btnPlayLesson);
         flashOverlay = view.findViewById(R.id.flashOverlay);
+        seekPanel = view.findViewById(R.id.seekPanel);
+        seekSlider = view.findViewById(R.id.seekSlider);
 
         titleView.setText(title);
+        tabView.setStringLabels(stringLabels);
         tabView.setNotes(notes);
+        fretboardView.setFretCount(fretCount);
+
+        setupSeek(view);
 
         setupViewModeToggle();
         setupRegion();
@@ -261,6 +351,7 @@ public class LessonDetailFragment extends Fragment {
         notes = LessonLibrary.chromaticCascade(start, end);
         currentIndex = 0;
         tabView.setNotes(notes);
+        configureSeek();
         textHeard.setText("Нажмите ИГРАТЬ");
         updateRegionLabel();
         updateLessonUi();
@@ -269,6 +360,107 @@ public class LessonDetailFragment extends Fragment {
     private void updateRegionLabel() {
         textRegion.setText("Участок: лады " + regionStart + "–" + regionEnd
                 + " · " + notes.size() + " нот. Двигайте ползунок или нажмите на гриф");
+    }
+
+    // ---------- перемотка ----------
+
+    private void setupSeek(View view) {
+        view.findViewById(R.id.btnSeekStart).setOnClickListener(v -> seekTo(0));
+        view.findViewById(R.id.btnSeekPrev).setOnClickListener(v -> seekTo(previousPosition()));
+        view.findViewById(R.id.btnSeekNext).setOnClickListener(v -> seekTo(nextPosition()));
+
+        seekSlider.setLabelFormatter(value -> positionLabel((int) value));
+        seekSlider.addOnChangeListener((slider, value, fromUser) -> {
+            if (fromUser) seekTo((int) value);
+        });
+
+        tabView.setOnSeekListener(new TabView.OnSeekListener() {
+            @Override
+            public void onSeek(int index) {
+                seekTo(index);
+            }
+
+            @Override
+            public void onSeekPreview(int index) {
+                textProgress.setText(progressText(index));
+            }
+        });
+
+        configureSeek();
+    }
+
+    /** Диапазон ползунка — по числу шагов; вызывать при смене нот урока. */
+    private void configureSeek() {
+        if (notes.size() < 2) {
+            seekPanel.setVisibility(View.GONE);
+            return;
+        }
+        seekPanel.setVisibility(View.VISIBLE);
+        seekSlider.setValue(0);
+        seekSlider.setValueTo(notes.size() - 1);
+    }
+
+    /** Перейти к шагу index: урок продолжится с него (если идёт — сразу слушаем эту ноту). */
+    private void seekTo(int index) {
+        if (notes.isEmpty()) return;
+        currentIndex = Math.max(0, Math.min(notes.size() - 1, index));
+        correctSince = 0L;
+        chordMatchedFrames = 0;
+        needsReattack = false;
+        // ещё звучащая прежняя нота не должна сразу засчитать новую
+        lastAdvanceTime = SystemClock.elapsedRealtime();
+
+        if (pitchDetector.isRunning()) {
+            textHeard.setText("Сыграйте подсвеченную ноту");
+        } else {
+            btnPlay.setText("ИГРАТЬ");
+        }
+        updateLessonUi();
+    }
+
+    // "назад": в начало текущего такта, а если уже в начале — в начало предыдущего
+    private int previousPosition() {
+        int index = Math.min(currentIndex, notes.size() - 1);
+        if (bars == null) return index - 1;
+
+        int barStart = firstStepOfBar(bars[index]);
+        if (index > barStart) return barStart;
+        return index == 0 ? 0 : firstStepOfBar(bars[index - 1]);
+    }
+
+    // "вперёд": в начало следующего такта (с нотами)
+    private int nextPosition() {
+        int index = Math.min(currentIndex, notes.size() - 1);
+        if (bars == null) return index + 1;
+
+        for (int i = index + 1; i < bars.length; i++) {
+            if (bars[i] != bars[index]) return i;
+        }
+        return notes.size() - 1;
+    }
+
+    private int firstStepOfBar(int bar) {
+        for (int i = 0; i < bars.length; i++) {
+            if (bars[i] == bar) return i;
+        }
+        return 0;
+    }
+
+    /** Подпись позиции: "Такт 5 из 40 · 37 / 400" или "37 / 400". */
+    private String progressText(int index) {
+        int shown = Math.min(index, notes.size());
+        String steps = shown + " / " + notes.size();
+        if (bars == null || notes.isEmpty()) return steps;
+
+        int bar = bars[Math.min(index, notes.size() - 1)] + 1;
+        int barTotal = bars[bars.length - 1] + 1;
+        return "Такт " + bar + " из " + barTotal + " · " + steps;
+    }
+
+    // подпись над бегунком ползунка
+    private String positionLabel(int index) {
+        if (bars != null && index < bars.length) return "Такт " + (bars[index] + 1);
+        return String.valueOf(index + 1);
     }
 
     // ---------- урок ----------
@@ -292,6 +484,8 @@ public class LessonDetailFragment extends Fragment {
         }
 
         correctSince = 0L;
+        needsReattack = false;
+        chordMatchedFrames = 0;
         pitchDetector.start();
         tabView.setPlaying(true);
         btnPlay.setText("СТОП");
@@ -312,33 +506,44 @@ public class LessonDetailFragment extends Fragment {
         TabNote next = currentIndex + 1 < notes.size() ? notes.get(currentIndex + 1) : null;
 
         if (current != null) {
-            textCurrentNote.setText(GuitarNoteUtils.getNoteName(current.getStringNumber(), current.getFret()));
-            textPosition.setText("Струна " + current.getStringNumber() + " · лад " + current.getFret());
+            String name = current.getDisplayName();
+            // длинные подписи (ноты аккорда без названия) не влезают крупным шрифтом
+            textCurrentNote.setTextSize(TypedValue.COMPLEX_UNIT_SP, name.length() <= 5 ? 72 : 36);
+            textCurrentNote.setText(name);
+            textPosition.setText(current.isChord()
+                    ? "Аккорд: " + current.notesListing()
+                    : "Струна " + current.getStringNumber() + " · лад " + current.getFret());
         } else {
+            textCurrentNote.setTextSize(TypedValue.COMPLEX_UNIT_SP, 72);
             textCurrentNote.setText("✓");
             textPosition.setText("Урок пройден!");
         }
-        textProgress.setText(Math.min(currentIndex, notes.size()) + " / " + notes.size());
+        textProgress.setText(progressText(currentIndex));
+        if (notes.size() >= 2) {
+            seekSlider.setValue(Math.min(currentIndex, notes.size() - 1));
+        }
 
         tabView.setCurrentIndex(currentIndex);
         fretboardView.setLessonMarkers(current, next);
     }
 
     // вызывается в главном потоке (так гарантирует PitchDetector)
-    private void onPitch(double frequencyHz) {
+    private void onPitch(double frequencyHz, double level) {
         if (isComplete()) return;
+        TabNote expected = notes.get(currentIndex);
+        // аккорды проверяются по хромаграмме в onChromaFrame
+        if (expected.isChord()) return;
 
         long now = SystemClock.elapsedRealtime();
         if (now - lastAdvanceTime < ADVANCE_COOLDOWN_MS) return;
 
         NoteUtils.NoteInfo detected = NoteUtils.frequencyToNote(frequencyHz);
         if (detected == null) return;
+
+        if (waitingForReattack(level)) return;
         textHeard.setText("Слышу: " + detected.fullName);
 
-        TabNote expected = notes.get(currentIndex);
-        int expectedMidi = GuitarNoteUtils.getMidi(expected.getStringNumber(), expected.getFret());
-
-        if (detected.midi != expectedMidi) {
+        if (detected.midi != expected.getMidi()) {
             correctSince = 0L;
             return;
         }
@@ -350,10 +555,69 @@ public class LessonDetailFragment extends Fragment {
         }
     }
 
+    // вызывается в главном потоке (так гарантирует PitchDetector)
+    private void onChromaFrame(double[] chroma, double level) {
+        if (isComplete()) return;
+        TabNote expected = notes.get(currentIndex);
+        if (!expected.isChord()) return;
+
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastAdvanceTime < ADVANCE_COOLDOWN_MS) return;
+
+        if (waitingForReattack(level)) return;
+        textHeard.setText("Слышу: " + describeChroma(chroma));
+
+        if (!ChordMatcher.matches(chroma, expected.getPitchClasses())) {
+            chordMatchedFrames = 0;
+            return;
+        }
+        chordMatchedFrames++;
+        if (chordMatchedFrames >= CHORD_FRAMES) advance(now);
+    }
+
+    /**
+     * Следующий шаг совпадает с только что сыгранным: ждём, пока громкость упадёт
+     * и снова резко вырастет (новый удар по струнам). true — пока ждём.
+     */
+    private boolean waitingForReattack(double level) {
+        if (!needsReattack) return false;
+        minLevelSinceAdvance = Math.min(minLevelSinceAdvance, level);
+        if (level < minLevelSinceAdvance * ATTACK_RATIO) {
+            textHeard.setText(notes.get(currentIndex).isChord()
+                    ? "Сыграйте этот аккорд ещё раз"
+                    : "Сыграйте эту ноту ещё раз");
+            return true;
+        }
+        needsReattack = false;
+        return false;
+    }
+
+    /** Самые громкие ноты хромаграммы, например "E B G#". */
+    private static String describeChroma(double[] chroma) {
+        StringBuilder sb = new StringBuilder();
+        boolean[] used = new boolean[12];
+        for (int k = 0; k < 4; k++) {
+            int best = -1;
+            for (int pc = 0; pc < 12; pc++) {
+                if (!used[pc] && chroma[pc] >= 0.35 && (best < 0 || chroma[pc] > chroma[best])) best = pc;
+            }
+            if (best < 0) break;
+            used[best] = true;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(NoteUtils.NOTE_NAMES[best]);
+        }
+        return sb.length() > 0 ? sb.toString() : "…";
+    }
+
     private void advance(long now) {
+        TabNote played = notes.get(currentIndex);
         currentIndex++;
         correctSince = 0L;
+        chordMatchedFrames = 0;
         lastAdvanceTime = now;
+
+        needsReattack = !isComplete() && isSameStep(played, notes.get(currentIndex));
+        minLevelSinceAdvance = Double.MAX_VALUE;
 
         if (isComplete()) {
             flash(0.6f, 700);
@@ -363,6 +627,12 @@ public class LessonDetailFragment extends Fragment {
             flash(0.35f, 350);
         }
         updateLessonUi();
+    }
+
+    // тот же аккорд (по набору нот) или та же нота (точная высота)
+    private static boolean isSameStep(TabNote a, TabNote b) {
+        if (a.isChord() != b.isChord()) return false;
+        return a.isChord() ? a.samePitchClasses(b) : a.getMidi() == b.getMidi();
     }
 
     private void flash(float alpha, long durationMs) {

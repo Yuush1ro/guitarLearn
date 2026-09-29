@@ -8,6 +8,7 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.example.guitartuner.R;
 import com.example.guitartuner.models.Song;
 
 import java.util.List;
@@ -19,27 +20,38 @@ public class SongsAdapter extends RecyclerView.Adapter<SongsAdapter.ViewHolder> 
     }
 
     private final List<Song> songs;
-    private final OnSongClickListener listener;
+    private final OnSongClickListener clickListener;
+    private final OnSongClickListener longClickListener;
 
-    public SongsAdapter(List<Song> songs, OnSongClickListener listener) {
+    public SongsAdapter(List<Song> songs, OnSongClickListener clickListener,
+                        OnSongClickListener longClickListener) {
         this.songs = songs;
-        this.listener = listener;
+        this.clickListener = clickListener;
+        this.longClickListener = longClickListener;
     }
 
     @NonNull
     @Override
     public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View view = LayoutInflater.from(parent.getContext())
-                .inflate(android.R.layout.simple_list_item_1, parent, false);
+                .inflate(R.layout.item_song, parent, false);
         return new ViewHolder(view);
     }
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         Song song = songs.get(position);
-        holder.textView.setText(song.getTitle());
+        holder.titleView.setText(song.getTitle());
+        holder.subtitleView.setText(song.getSubtitle());
+        holder.subtitleView.setVisibility(song.getSubtitle().isEmpty() ? View.GONE : View.VISIBLE);
+
         holder.itemView.setOnClickListener(v -> {
-            if (listener != null) listener.onSongClick(song);
+            if (clickListener != null) clickListener.onSongClick(song);
+        });
+        holder.itemView.setOnLongClickListener(v -> {
+            if (longClickListener == null) return false;
+            longClickListener.onSongClick(song);
+            return true;
         });
     }
 
@@ -49,10 +61,13 @@ public class SongsAdapter extends RecyclerView.Adapter<SongsAdapter.ViewHolder> 
     }
 
     static class ViewHolder extends RecyclerView.ViewHolder {
-        TextView textView;
-        public ViewHolder(@NonNull View itemView) {
+        final TextView titleView;
+        final TextView subtitleView;
+
+        ViewHolder(@NonNull View itemView) {
             super(itemView);
-            textView = itemView.findViewById(android.R.id.text1);
+            titleView = itemView.findViewById(R.id.textSongTitle);
+            subtitleView = itemView.findViewById(R.id.textSongSubtitle);
         }
     }
 }

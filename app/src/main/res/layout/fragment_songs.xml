@@ -7,7 +7,21 @@
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerSongs"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"/>
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:paddingTop="10dp"
+        android:paddingBottom="88dp"/>
+
+    <TextView
+        android:id="@+id/textSongsEmpty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:padding="32dp"
+        android:text="Песен пока нет.\nНажмите «+», чтобы добавить файл Guitar Pro\n(.gp, .gpx, .gp5, .gp4, .gp3)"
+        android:textSize="16sp"
+        android:visibility="gone"/>
 
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/fabImportSong"

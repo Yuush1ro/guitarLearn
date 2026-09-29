@@ -11,6 +11,7 @@ import android.os.Looper;
  *
  * YIN ищет период сигнала, а не самый громкий пик спектра, поэтому не путает
  * основной тон с гармониками (низкая E2 больше не определяется как E3/B3).
+ * Для аккордов (несколько нот сразу) дополнительно считается хромаграмма.
  *
  * Колбэки слушателя приходят в главном потоке и только пока детектор запущен —
  * после stop() ни один колбэк уже не будет вызван.
@@ -20,8 +21,28 @@ public class PitchDetector {
     public interface PitchListener {
         void onPitchDetected(double frequencyHz);
 
-        /** Сигнал слишком тихий или нет чёткого тона. */
+        /**
+         * То же, плюс громкость (RMS, 0..1) последних сэмплов — по её скачку
+         * можно заметить новый щипок струны. По умолчанию громкость не нужна.
+         */
+        default void onPitchDetected(double frequencyHz, double level) {
+            onPitchDetected(frequencyHz);
+        }
+
+        /** Сигнал слишком тихий. */
         default void onSilence() {
+        }
+
+        /** Звук есть, но одной чёткой ноты нет (например, звучит аккорд). */
+        default void onNoPitch() {
+            onSilence();
+        }
+
+        /**
+         * Хромаграмма каждого не тихого кадра: энергия 12 нот (0 = C), максимум = 1.
+         * Приходит, только если детектор создан с computeChroma = true.
+         */
+        default void onChroma(double[] chroma, double level) {
         }
     }
 
@@ -31,6 +52,8 @@ public class PitchDetector {
     private static final int WINDOW_SIZE = 4096;
     // шаг между окнами в сэмплах (~46 мс) — окна перекрываются наполовину
     private static final int HOP_SIZE = 2048;
+    // окно для хромаграммы (~186 мс): длиннее, чтобы различать низкие ноты аккорда в спектре
+    private static final int CHROMA_WINDOW_SIZE = 8192;
 
     // диапазон поиска: чуть ниже E2 (82 Гц) .. выше 20-го лада первой струны (~1319 Гц)
     private static final double MIN_FREQ = 60.0;
@@ -42,6 +65,7 @@ public class PitchDetector {
     private static final double SILENCE_RMS = 0.01;
 
     private final PitchListener listener;
+    private final boolean computeChroma;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     // текущий поток записи; null — детектор остановлен.
@@ -50,7 +74,13 @@ public class PitchDetector {
     private volatile Thread thread;
 
     public PitchDetector(PitchListener listener) {
+        this(listener, false);
+    }
+
+    /** computeChroma = true — дополнительно считать хромаграмму для распознавания аккордов. */
+    public PitchDetector(PitchListener listener, boolean computeChroma) {
         this.listener = listener;
+        this.computeChroma = computeChroma;
     }
 
     public boolean isRunning() {
@@ -111,8 +141,12 @@ public class PitchDetector {
             audioRecord.startRecording();
 
             short[] hop = new short[HOP_SIZE];
+            // последние CHROMA_WINDOW_SIZE сэмплов; для YIN берём их хвост длиной WINDOW_SIZE
+            float[] history = new float[CHROMA_WINDOW_SIZE];
             float[] window = new float[WINDOW_SIZE];
             Yin yin = new Yin(SAMPLE_RATE, WINDOW_SIZE, MIN_FREQ, MAX_FREQ);
+            ChromaAnalyzer chromaAnalyzer =
+                    computeChroma ? new ChromaAnalyzer(SAMPLE_RATE, CHROMA_WINDOW_SIZE) : null;
             int filled = 0;
 
             while (isActive(self)) {
@@ -120,16 +154,22 @@ public class PitchDetector {
                 if (read < 0) break;
                 if (read == 0) continue;
 
-                // сдвигаем окно влево и дописываем новые сэмплы в конец
-                System.arraycopy(window, read, window, 0, WINDOW_SIZE - read);
+                // сдвигаем историю влево и дописываем новые сэмплы в конец
+                System.arraycopy(history, read, history, 0, CHROMA_WINDOW_SIZE - read);
                 for (int i = 0; i < read; i++) {
-                    window[WINDOW_SIZE - read + i] = hop[i] / 32768f;
+                    history[CHROMA_WINDOW_SIZE - read + i] = hop[i] / 32768f;
                 }
-                filled = Math.min(WINDOW_SIZE, filled + read);
+                filled = Math.min(CHROMA_WINDOW_SIZE, filled + read);
                 if (filled < WINDOW_SIZE) continue;
 
-                double freq = rms(window) < SILENCE_RMS ? -1 : yin.detect(window);
-                deliver(self, freq);
+                System.arraycopy(history, CHROMA_WINDOW_SIZE - WINDOW_SIZE, window, 0, WINDOW_SIZE);
+
+                boolean silent = rms(window, 0) < SILENCE_RMS;
+                double freq = silent ? -1 : yin.detect(window);
+                double[] chroma = !silent && chromaAnalyzer != null && filled == CHROMA_WINDOW_SIZE
+                        ? chromaAnalyzer.analyze(history) : null;
+                // громкость только свежих сэмплов — быстрее реагирует на новый щипок струны
+                deliver(self, silent, freq, rms(window, WINDOW_SIZE - read), chroma);
             }
         } catch (IllegalStateException ignored) {
         } finally {
@@ -153,13 +193,18 @@ public class PitchDetector {
         return total;
     }
 
-    private void deliver(Thread self, double freq) {
+    private void deliver(Thread self, boolean silent, double freq, double level, double[] chroma) {
         if (listener == null) return;
         mainHandler.post(() -> {
             // stop() мог быть вызван, пока колбэк стоял в очереди
             if (!isActive(self)) return;
-            if (freq > 0) listener.onPitchDetected(freq);
-            else listener.onSilence();
+            if (silent) {
+                listener.onSilence();
+                return;
+            }
+            if (chroma != null) listener.onChroma(chroma, level);
+            if (freq > 0) listener.onPitchDetected(freq, level);
+            else listener.onNoPitch();
         });
     }
 
@@ -167,10 +212,11 @@ public class PitchDetector {
         if (thread == self) thread = null;
     }
 
-    private static double rms(float[] data) {
+    /** RMS сэмплов data[from..конец]. */
+    private static double rms(float[] data, int from) {
         double sum = 0;
-        for (float v : data) sum += v * v;
-        return Math.sqrt(sum / data.length);
+        for (int i = from; i < data.length; i++) sum += data[i] * data[i];
+        return Math.sqrt(sum / (data.length - from));
     }
 
     /** Реализация YIN (de Cheveigné & Kawahara, 2002) с переиспользуемым буфером. */

@@ -27,9 +27,16 @@ public class GuitarNoteUtils {
 
     /** Возвращает имя ноты с октавой, например "E4" или "C#3" */
     public static String getNoteName(int stringNumber, int fret) {
-        int midi = getMidi(stringNumber, fret);
-        String name = NOTE_NAMES[((midi % 12) + 12) % 12];
-        int octave = (midi / 12) - 1;
-        return name + octave;
+        return midiToName(getMidi(stringNumber, fret));
+    }
+
+    /** Имя ноты с октавой по MIDI-номеру, например 40 -> "E2" */
+    public static String midiToName(int midi) {
+        return pitchClassName(midi) + ((midi / 12) - 1);
+    }
+
+    /** Имя ноты без октавы по MIDI-номеру, например 40 -> "E" */
+    public static String pitchClassName(int midi) {
+        return NOTE_NAMES[((midi % 12) + 12) % 12];
     }
 }

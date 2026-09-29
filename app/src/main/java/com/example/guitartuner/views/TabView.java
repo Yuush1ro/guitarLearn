@@ -7,7 +7,9 @@ import android.graphics.Paint;
 import android.graphics.RectF;
 import android.os.SystemClock;
 import android.util.AttributeSet;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 
 import com.example.guitartuner.models.TabNote;
 
@@ -17,13 +19,24 @@ import java.util.List;
 /**
  * Горизонтальная лента бегущих нот в виде табулатуры.
  *
- * Только рисует: какую ноту играть сейчас, решает фрагмент через setCurrentIndex().
+ * Какую ноту играть сейчас, решает фрагмент через setCurrentIndex().
  * Текущая нота стоит на линии воспроизведения и пульсирует свечением.
+ * Ленту можно тянуть пальцем — после отпускания она встаёт на ближайшую ноту
+ * и сообщает об этом через OnSeekListener.
  */
 public class TabView extends View {
 
+    public interface OnSeekListener {
+        /** Пользователь отпустил ленту: играть с ноты index. */
+        void onSeek(int index);
+
+        /** Лента тянется: у линии воспроизведения сейчас нота index. */
+        default void onSeekPreview(int index) {
+        }
+    }
+
     private static final int STRING_COUNT = 6;
-    private static final String[] STRING_LABELS = {"e", "B", "G", "D", "A", "E"};
+    private static final String[] STANDARD_LABELS = {"e", "B", "G", "D", "A", "E"};
     private static final float NOTE_SPACING_DP = 56f;
     private static final long PULSE_PERIOD_MS = 1200;
 
@@ -39,11 +52,13 @@ public class TabView extends View {
     private final Paint upcomingPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint currentPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint chordBarPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint doneTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint upcomingTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint currentTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF rect = new RectF();
 
+    private String[] stringLabels = STANDARD_LABELS;
     private List<TabNote> notes = new ArrayList<>();
     private int currentIndex = 0;
     private boolean playing = false;
@@ -51,6 +66,14 @@ public class TabView extends View {
     private float animatedScrollPx = 0f;
     private float targetScrollPx = 0f;
     private boolean frameScheduled = false;
+
+    // перетаскивание ленты пальцем
+    private final int touchSlop;
+    private OnSeekListener seekListener;
+    private boolean dragging = false;
+    private float dragStartX;
+    private float dragStartScrollPx;
+    private int previewIndex = -1;
 
     private final Runnable frame = new Runnable() {
         @Override
@@ -68,6 +91,7 @@ public class TabView extends View {
         super(context, attrs);
         density = getResources().getDisplayMetrics().density;
         noteSpacingPx = NOTE_SPACING_DP * density;
+        touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
 
         backgroundPaint.setColor(Color.parseColor("#263238"));
 
@@ -108,11 +132,100 @@ public class TabView extends View {
         invalidate();
     }
 
+    /** Подписи струн от 1-й (тонкой) к 6-й, например для нестандартного строя песни. */
+    public void setStringLabels(String[] labels) {
+        stringLabels = labels != null && labels.length == STRING_COUNT ? labels : STANDARD_LABELS;
+        invalidate();
+    }
+
     /** Индекс ноты, которую нужно играть сейчас; notes.size() — урок пройден. */
     public void setCurrentIndex(int index) {
         currentIndex = index;
-        targetScrollPx = Math.min(index, Math.max(0, notes.size() - 1)) * noteSpacingPx;
+        // пока ленту тянут пальцем, её положение задаёт палец
+        if (dragging) return;
+        targetScrollPx = scrollForIndex(index);
         scheduleFrame();
+    }
+
+    public void setOnSeekListener(OnSeekListener listener) {
+        seekListener = listener;
+    }
+
+    private float scrollForIndex(int index) {
+        return Math.min(index, maxIndex()) * noteSpacingPx;
+    }
+
+    private int maxIndex() {
+        return Math.max(0, notes.size() - 1);
+    }
+
+    private int indexAtPlayhead() {
+        return Math.max(0, Math.min(maxIndex(), Math.round(animatedScrollPx / noteSpacingPx)));
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        if (notes.isEmpty()) return super.onTouchEvent(event);
+
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                dragStartX = event.getX();
+                dragStartScrollPx = animatedScrollPx;
+                dragging = false;
+                return true;
+
+            case MotionEvent.ACTION_MOVE: {
+                float dx = event.getX() - dragStartX;
+                if (!dragging && Math.abs(dx) > touchSlop) {
+                    dragging = true;
+                    previewIndex = -1;
+                    // не даём прокручиваемому родителю перехватить жест
+                    if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+                }
+                if (dragging) {
+                    float scroll = dragStartScrollPx - dx;
+                    animatedScrollPx = Math.max(0, Math.min(maxIndex() * noteSpacingPx, scroll));
+                    targetScrollPx = animatedScrollPx;
+                    invalidate();
+
+                    int index = indexAtPlayhead();
+                    if (index != previewIndex) {
+                        previewIndex = index;
+                        if (seekListener != null) seekListener.onSeekPreview(index);
+                    }
+                }
+                return true;
+            }
+
+            case MotionEvent.ACTION_UP:
+                if (dragging) {
+                    dragging = false;
+                    int index = indexAtPlayhead();
+                    targetScrollPx = scrollForIndex(index);
+                    scheduleFrame();
+                    if (seekListener != null) seekListener.onSeek(index);
+                } else {
+                    performClick();
+                }
+                return true;
+
+            case MotionEvent.ACTION_CANCEL:
+                if (dragging) {
+                    dragging = false;
+                    // жест отменён — возвращаемся к текущей ноте
+                    targetScrollPx = scrollForIndex(currentIndex);
+                    scheduleFrame();
+                }
+                return true;
+
+            default:
+                return super.onTouchEvent(event);
+        }
+    }
+
+    @Override
+    public boolean performClick() {
+        return super.performClick();
     }
 
     /** Пока идёт урок, текущая нота пульсирует. */
@@ -149,7 +262,7 @@ public class TabView extends View {
             float y = top + s * stringSpacing;
             stringPaint.setStrokeWidth(dp(1f + s * 0.3f));
             canvas.drawLine(gutter, y, width - dp(8), y, stringPaint);
-            canvas.drawText(STRING_LABELS[s], gutter / 2f, y + labelPaint.getTextSize() / 3f, labelPaint);
+            canvas.drawText(stringLabels[s], gutter / 2f, y + labelPaint.getTextSize() / 3f, labelPaint);
         }
 
         float playheadX = gutter + (width - gutter) * 0.22f;
@@ -166,18 +279,44 @@ public class TabView extends View {
             float x = playheadX + i * noteSpacingPx - animatedScrollPx;
             if (x < gutter - radius * 2 || x > width + radius * 2) continue;
 
-            TabNote note = notes.get(i);
-            float y = top + (note.getStringNumber() - 1) * stringSpacing;
-            String fret = String.valueOf(note.getFret());
-
+            TabNote step = notes.get(i);
+            Paint fill;
+            Paint textPaint;
+            float r = radius;
             if (i == currentIndex) {
-                glowPaint.setAlpha((int) (110 * (1f - 0.6f * pulse)));
-                canvas.drawCircle(x, y, radius * (1.3f + 0.25f * pulse), glowPaint);
-                drawNote(canvas, x, y, radius, fret, currentPaint, currentTextPaint);
+                fill = currentPaint;
+                textPaint = currentTextPaint;
             } else if (i < currentIndex) {
-                drawNote(canvas, x, y, radius * 0.8f, fret, donePaint, doneTextPaint);
+                fill = donePaint;
+                textPaint = doneTextPaint;
+                r = radius * 0.8f;
             } else {
-                drawNote(canvas, x, y, radius, fret, upcomingPaint, upcomingTextPaint);
+                fill = upcomingPaint;
+                textPaint = upcomingTextPaint;
+            }
+
+            // аккорд: ноты на одной вертикали, соединённые полосой
+            if (step.isChord()) {
+                float minY = Float.MAX_VALUE;
+                float maxY = -Float.MAX_VALUE;
+                for (TabNote n : step.getNotes()) {
+                    float y = top + (n.getStringNumber() - 1) * stringSpacing;
+                    minY = Math.min(minY, y);
+                    maxY = Math.max(maxY, y);
+                }
+                chordBarPaint.setColor(fill.getColor());
+                chordBarPaint.setAlpha(110);
+                rect.set(x - r * 0.35f, minY, x + r * 0.35f, maxY);
+                canvas.drawRoundRect(rect, r * 0.35f, r * 0.35f, chordBarPaint);
+            }
+
+            for (TabNote n : step.getNotes()) {
+                float y = top + (n.getStringNumber() - 1) * stringSpacing;
+                if (i == currentIndex) {
+                    glowPaint.setAlpha((int) (110 * (1f - 0.6f * pulse)));
+                    canvas.drawCircle(x, y, r * (1.3f + 0.25f * pulse), glowPaint);
+                }
+                drawNote(canvas, x, y, r, String.valueOf(n.getFret()), fill, textPaint);
             }
         }
 

@@ -31,9 +31,12 @@ public class FretboardView extends View {
         void onRegionChanged(int startFret, int endFret, boolean pending);
     }
 
+    /** Сколько ладов показывать по умолчанию. */
     public static final int FRET_COUNT = 12;
+    public static final int MAX_FRET_COUNT = 24;
     private static final int STRING_COUNT = 6;
-    private static final int[] INLAY_FRETS = {3, 5, 7, 9};
+    private static final int[] INLAY_FRETS = {3, 5, 7, 9, 15, 17, 19, 21};
+    private static final int[] DOUBLE_INLAY_FRETS = {12, 24};
 
     private final float density;
 
@@ -70,6 +73,7 @@ public class FretboardView extends View {
         }
     };
 
+    private int fretCount = FRET_COUNT;
     private int targetPitchClass = -1;
     private final boolean[] scalePitchClasses = new boolean[12];
     private boolean showNotes = true;
@@ -220,17 +224,25 @@ public class FretboardView extends View {
         regionListener = listener;
     }
 
-    private static int clampFret(int fret) {
-        return Math.max(0, Math.min(FRET_COUNT, fret));
+    /** Сколько ладов показать (12..24), например по самому высокому ладу песни. */
+    public void setFretCount(int count) {
+        fretCount = Math.max(FRET_COUNT, Math.min(MAX_FRET_COUNT, count));
+        regionStart = clampFret(regionStart);
+        regionEnd = clampFret(regionEnd);
+        invalidate();
+    }
+
+    private int clampFret(int fret) {
+        return Math.max(0, Math.min(fretCount, fret));
     }
 
     private boolean isFretVisible(int fret) {
         return !regionMode || (fret >= regionStart && fret <= regionEnd);
     }
 
-    // колонка 0 — открытые струны (слева от порожка), колонки 1..12 — лады
+    // колонка 0 — открытые струны (слева от порожка), колонки 1..fretCount — лады
     private float cellWidth() {
-        return getWidth() / (float) (FRET_COUNT + 1);
+        return getWidth() / (float) (fretCount + 1);
     }
 
     private float fretCenterX(int fret) {
@@ -260,13 +272,17 @@ public class FretboardView extends View {
         float inlayRadius = Math.min(cellW, stringSpacing) * 0.18f;
         float midY = (top + bottom) / 2f;
         for (int fret : INLAY_FRETS) {
+            if (fret > fretCount) break;
             canvas.drawCircle(fretCenterX(fret), midY, inlayRadius, inlayPaint);
         }
-        canvas.drawCircle(fretCenterX(12), top + stringSpacing * 1.5f, inlayRadius, inlayPaint);
-        canvas.drawCircle(fretCenterX(12), top + stringSpacing * 3.5f, inlayRadius, inlayPaint);
+        for (int fret : DOUBLE_INLAY_FRETS) {
+            if (fret > fretCount) break;
+            canvas.drawCircle(fretCenterX(fret), top + stringSpacing * 1.5f, inlayRadius, inlayPaint);
+            canvas.drawCircle(fretCenterX(fret), top + stringSpacing * 3.5f, inlayRadius, inlayPaint);
+        }
 
         // лады и порожек
-        for (int fret = 1; fret <= FRET_COUNT; fret++) {
+        for (int fret = 1; fret <= fretCount; fret++) {
             float x = (fret + 1) * cellW;
             canvas.drawLine(x, boardTop, x, boardBottom, fretPaint);
         }
@@ -281,7 +297,7 @@ public class FretboardView extends View {
 
         // затемнение ладов вне выбранного участка
         if (regionMode) {
-            for (int fret = 0; fret <= FRET_COUNT; fret++) {
+            for (int fret = 0; fret <= fretCount; fret++) {
                 if (!isFretVisible(fret)) {
                     canvas.drawRect(fret * cellW, boardTop, (fret + 1) * cellW, boardBottom, dimPaint);
                 }
@@ -305,7 +321,7 @@ public class FretboardView extends View {
 
             for (int s = 0; s < STRING_COUNT; s++) {
                 float y = top + s * stringSpacing;
-                for (int fret = 0; fret <= FRET_COUNT; fret++) {
+                for (int fret = 0; fret <= fretCount; fret++) {
                     if (!isFretVisible(fret)) continue;
 
                     int pc = GuitarNoteUtils.getMidi(s + 1, fret) % 12;
@@ -324,36 +340,44 @@ public class FretboardView extends View {
             }
         }
 
-        // позиции урока: следующая нота контуром, текущая — со свечением
+        // позиции урока: следующая нота/аккорд контуром, текущие — со свечением
         if (lessonNext != null) {
-            float x = fretCenterX(lessonNext.getFret());
-            float y = top + (lessonNext.getStringNumber() - 1) * stringSpacing;
             float r = targetRadius * 0.85f;
-            canvas.drawCircle(x, y, r, nextMarkerPaint);
             nextMarkerTextPaint.setTextSize(r * 1.0f);
-            canvas.drawText(noteName(lessonNext), x, y + nextMarkerTextPaint.getTextSize() / 3f,
-                    nextMarkerTextPaint);
+            for (TabNote n : lessonNext.getNotes()) {
+                float x = fretCenterX(n.getFret());
+                float y = top + (n.getStringNumber() - 1) * stringSpacing;
+                canvas.drawCircle(x, y, r, nextMarkerPaint);
+                canvas.drawText(noteName(n), x, y + nextMarkerTextPaint.getTextSize() / 3f,
+                        nextMarkerTextPaint);
+            }
         }
         if (lessonCurrent != null) {
-            float x = fretCenterX(lessonCurrent.getFret());
-            float y = top + (lessonCurrent.getStringNumber() - 1) * stringSpacing;
-            drawGlow(canvas, x, y, targetRadius, pulse);
-            canvas.drawCircle(x, y, targetRadius, targetPaint);
             targetTextPaint.setTextSize(targetRadius * 1.1f);
-            canvas.drawText(noteName(lessonCurrent), x, y + targetTextPaint.getTextSize() / 3f,
-                    targetTextPaint);
+            for (TabNote n : lessonCurrent.getNotes()) {
+                float x = fretCenterX(n.getFret());
+                float y = top + (n.getStringNumber() - 1) * stringSpacing;
+                drawGlow(canvas, x, y, targetRadius, pulse);
+            }
+            for (TabNote n : lessonCurrent.getNotes()) {
+                float x = fretCenterX(n.getFret());
+                float y = top + (n.getStringNumber() - 1) * stringSpacing;
+                canvas.drawCircle(x, y, targetRadius, targetPaint);
+                canvas.drawText(noteName(n), x, y + targetTextPaint.getTextSize() / 3f,
+                        targetTextPaint);
+            }
         }
 
         // номера ладов
         float numbersY = height - dp(4);
-        for (int fret = 0; fret <= FRET_COUNT; fret++) {
+        for (int fret = 0; fret <= fretCount; fret++) {
             canvas.drawText(String.valueOf(fret), fretCenterX(fret), numbersY, fretNumberPaint);
         }
     }
 
     private static String noteName(TabNote note) {
-        int pc = GuitarNoteUtils.getMidi(note.getStringNumber(), note.getFret()) % 12;
-        return NoteUtils.NOTE_NAMES[pc];
+        // по точной высоте — у песен может быть нестандартный строй
+        return GuitarNoteUtils.pitchClassName(note.getMidi());
     }
 
     @Override

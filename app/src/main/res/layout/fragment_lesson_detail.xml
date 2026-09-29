@@ -111,6 +111,61 @@
                 android:textSize="16sp"/>
         </LinearLayout>
 
+        <!-- перемотка: в начало, назад/вперёд на такт (или ноту), ползунок по всей песне -->
+        <LinearLayout
+            android:id="@+id/seekPanel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnSeekStart"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="44dp"
+                android:layout_height="wrap_content"
+                android:contentDescription="В начало"
+                android:minWidth="0dp"
+                android:paddingStart="0dp"
+                android:paddingEnd="0dp"
+                android:text="⏮"
+                android:textSize="18sp"/>
+
+            <Button
+                android:id="@+id/btnSeekPrev"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="44dp"
+                android:layout_height="wrap_content"
+                android:contentDescription="Назад"
+                android:minWidth="0dp"
+                android:paddingStart="0dp"
+                android:paddingEnd="0dp"
+                android:text="◀"
+                android:textSize="18sp"/>
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/seekSlider"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:contentDescription="Позиция в песне"
+                android:stepSize="1"
+                android:valueFrom="0"
+                android:valueTo="1"/>
+
+            <Button
+                android:id="@+id/btnSeekNext"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="44dp"
+                android:layout_height="wrap_content"
+                android:contentDescription="Вперёд"
+                android:minWidth="0dp"
+                android:paddingStart="0dp"
+                android:paddingEnd="0dp"
+                android:text="▶"
+                android:textSize="18sp"/>
+        </LinearLayout>
+
         <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="170dp">

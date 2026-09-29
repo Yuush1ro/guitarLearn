@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <!-- Невидимая страница: разбирает файл Guitar Pro и отдаёт ноты в приложение. -->
+    <script src="alphaTab.min.js"></script>
+</head>
+<body>
+<script>
+    // Номер струны в AlphaTab: 1 = самая толстая. staff.tuning: от верхней струны к нижней.
+    // Каждый шаг: { n: [[струна, лад, midi], ...], c: "название аккорда", b: номер такта с 0 }
+    function extractTrack(track, index) {
+      const staff = track.staves[0];
+      const result = {
+        index: index,
+        name: track.name || ('Дорожка ' + (index + 1)),
+        percussion: !!staff.isPercussion,
+        tuning: staff.tuning.slice(),
+        capo: staff.capo,
+        steps: []
+      };
+      if (staff.isPercussion || staff.tuning.length === 0) return result;
+
+      result.barCount = staff.bars.length;
+      for (let barIndex = 0; barIndex < staff.bars.length; barIndex++) {
+        const bar = staff.bars[barIndex];
+        const voice = bar.voices[0];
+        if (!voice) continue;
+        for (const beat of voice.beats) {
+          // паузы и форшлаги пропускаем
+          if (beat.isRest || beat.isEmpty || beat.graceType !== 0) continue;
+
+          // продолжения лиги и мёртвые ноты (x) заново не играются
+          const notes = [];
+          for (const note of beat.notes) {
+            if (note.isTieDestination || note.isDead || !note.isStringed) continue;
+            // stringTuning уже учитывает каподастр
+            notes.push([note.string, note.fret, note.fret + note.stringTuning]);
+          }
+          if (notes.length === 0) continue;
+
+          let chordName = '';
+          try {
+            if (notes.length > 1 && beat.chord && beat.chord.name) chordName = beat.chord.name;
+          } catch (e) {
+            // название аккорда необязательно
+          }
+          result.steps.push({ n: notes, c: chordName, b: barIndex });
+        }
+      }
+      return result;
+    }
+
+    function parseSong(base64) {
+      try {
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+        const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(bytes, new alphaTab.Settings());
+        const song = {
+          title: score.title || '',
+          artist: score.artist || '',
+          tracks: score.tracks.map(extractTrack)
+        };
+        Android.onParsed(JSON.stringify(song));
+      } catch (e) {
+        Android.onParseError(String((e && e.message) || e));
+      }
+    }
+
+    window.parseSong = parseSong;
+</script>
+</body>
+</html>

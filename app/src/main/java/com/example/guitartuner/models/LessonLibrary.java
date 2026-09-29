@@ -1,7 +1,5 @@
 package com.example.guitartuner.models;
 
-import com.example.guitartuner.utils.GuitarNoteUtils;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -61,7 +59,7 @@ public final class LessonLibrary {
         for (int string = 6; string >= 1; string--) {
             for (int fret = start; fret <= end; fret++) {
                 TabNote note = new TabNote(string, fret);
-                if (!up.isEmpty() && midi(up.get(up.size() - 1)) == midi(note)) {
+                if (!up.isEmpty() && up.get(up.size() - 1).getMidi() == note.getMidi()) {
                     up.remove(up.size() - 1);
                 }
                 up.add(note);
@@ -94,9 +92,5 @@ public final class LessonLibrary {
         notes.add(new TabNote(1, 7)); // B4
         notes.add(new TabNote(1, 8)); // C5
         return notes;
-    }
-
-    private static int midi(TabNote note) {
-        return GuitarNoteUtils.getMidi(note.getStringNumber(), note.getFret());
     }
 }
