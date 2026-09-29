@@ -6,6 +6,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.fragment.app.Fragment;
 
 import com.example.guitartuner.fragments.LessonsFragment;
+import com.example.guitartuner.fragments.NoteTrainerFragment;
 import com.example.guitartuner.fragments.SongsFragment;
 import com.example.guitartuner.fragments.TunerFragment;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
@@ -37,6 +38,9 @@ public class MainActivity extends AppCompatActivity {
             }
             else if (item.getItemId() == R.id.nav_lessons) {
                 fragment = new LessonsFragment();
+            }
+            else if (item.getItemId() == R.id.nav_trainer) {
+                fragment = new NoteTrainerFragment();
             }
             else if (item.getItemId() == R.id.nav_songs) {
                 fragment = new SongsFragment();

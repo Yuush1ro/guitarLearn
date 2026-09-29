@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingStart="16dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="12dp">
+
+        <!-- тоника -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Тоника:"
+                android:textSize="16sp"/>
+
+            <Spinner
+                android:id="@+id/spinnerRoot"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="96dp"/>
+        </LinearLayout>
+
+        <!-- гамма -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="104dp"
+                android:layout_height="wrap_content"
+                android:text="Гамма:"
+                android:textSize="16sp"/>
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chipGroupScale"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                app:singleSelection="true">
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipMajor"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Мажор"/>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipMinor"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Минор"/>
+            </com.google.android.material.chip.ChipGroup>
+        </LinearLayout>
+
+        <!-- пентатоника -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="104dp"
+                android:layout_height="wrap_content"
+                android:text="Пентатоника:"
+                android:textSize="16sp"/>
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chipGroupPentatonic"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                app:singleSelection="true">
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipPentaMajor"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Мажорная"/>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipPentaMinor"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Минорная"/>
+            </com.google.android.material.chip.ChipGroup>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/textScaleNotes"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="4dp"
+            android:textSize="14sp"/>
+
+        <!-- нота, которую нужно сыграть -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:minHeight="120dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/textTargetNote"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="—"
+                android:textSize="96sp"
+                android:textStyle="bold"/>
+
+            <TextView
+                android:id="@+id/textHeard"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Нажмите СТАРТ и сыграйте показанную ноту"
+                android:textSize="16sp"/>
+
+            <TextView
+                android:id="@+id/textScore"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingTop="4dp"
+                android:text="Верно: 0"
+                android:textSize="16sp"/>
+        </LinearLayout>
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchShowNotes"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:checked="true"
+            android:text="Показывать ноты на грифе"/>
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchRegion"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Только участок грифа"/>
+
+        <TextView
+            android:id="@+id/textRegionHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="13sp"
+            android:visibility="gone"/>
+
+        <com.example.guitartuner.views.FretboardView
+            android:id="@+id/fretboardView"
+            android:layout_width="match_parent"
+            android:layout_height="160dp"
+            android:layout_marginTop="4dp"/>
+
+        <Button
+            android:id="@+id/btnStartTrainer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginTop="8dp"
+            android:text="СТАРТ"/>
+    </LinearLayout>
+
+    <!-- зелёная вспышка при верной ноте; поверх всего, касания не перехватывает -->
+    <View
+        android:id="@+id/flashOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0"
+        android:background="#4CAF50"
+        android:clickable="false"
+        android:focusable="false"
+        android:importantForAccessibility="no"/>
+
+</FrameLayout>
