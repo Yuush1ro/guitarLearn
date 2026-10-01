@@ -1,11 +1,77 @@
 <?xml version="1.0" encoding="utf-8"?>
-
-<androidx.recyclerview.widget.RecyclerView
+<LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/recyclerLessons"
-    android:layoutAnimation="@anim/layout_cascade"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:clipToPadding="false"
-    android:paddingTop="10dp"
-    android:paddingBottom="10dp"/>
+    android:orientation="vertical">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="16dp"
+        android:paddingTop="12dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="8dp"
+        android:text="Уроки"
+        android:textAppearance="@style/TextAppearance.GuitarTuner.ScreenTitle"/>
+
+    <!-- аккорды: библиотека, проверка игры и конструктор -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/cardChords"
+        style="@style/Widget.GuitarTuner.Card"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="6dp"
+        android:clickable="true"
+        android:focusable="true"
+        app:strokeColor="@color/gt_primary"
+        xmlns:app="http://schemas.android.com/apk/res-auto">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Аккорды"
+                    android:textAppearance="@style/TextAppearance.GuitarTuner.CardTitle"/>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="4dp"
+                    android:text="Стандартные аккорды: послушать и сыграть. Конструктор: соберите свой — приложение назовёт аккорд"
+                    android:textAppearance="@style/TextAppearance.GuitarTuner.Label"/>
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingStart="12dp"
+                android:text="Am"
+                android:textAppearance="@style/TextAppearance.GuitarTuner.BigNote"
+                android:textSize="34sp"/>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recyclerLessons"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:layoutAnimation="@anim/layout_cascade"
+        android:paddingTop="4dp"
+        android:paddingBottom="10dp"/>
+</LinearLayout>

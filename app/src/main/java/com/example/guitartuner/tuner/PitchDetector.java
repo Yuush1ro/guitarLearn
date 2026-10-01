@@ -5,6 +5,7 @@ import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 
 /**
  * Запись с микрофона и анализ звука (см. FrameAnalyzer): тон, громкость, атака, хромаграмма.
@@ -132,9 +133,15 @@ public class PitchDetector {
                 if (read < 0) break;
                 if (read == 0) continue;
 
+                // момент записи — до анализа и до очереди главного потока,
+                // чтобы время звука не "плыло" от загрузки интерфейса
+                long captured = SystemClock.uptimeMillis();
                 for (int i = 0; i < read; i++) hop[i] = raw[i] / 32768f;
                 AudioFrame frame = analyzer.process(hop, read);
-                if (frame != null) deliver(self, frame);
+                if (frame != null) {
+                    frame.captureUptimeMs = captured;
+                    deliver(self, frame);
+                }
             }
         } catch (IllegalStateException ignored) {
         } finally {

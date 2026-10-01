@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -34,6 +35,7 @@ import com.example.guitartuner.tuner.PitchDetector;
 import com.example.guitartuner.ui.Anim;
 import com.example.guitartuner.utils.GuitarNoteUtils;
 import com.example.guitartuner.views.FretboardView;
+import com.example.guitartuner.views.ResultMapView;
 import com.example.guitartuner.views.TabView;
 import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.materialswitch.MaterialSwitch;
@@ -79,6 +81,10 @@ public class LessonDetailFragment extends Fragment {
     private static final String KEY_SPEED_PREFIX = "speed_";
     private static final String KEY_REGION_START = "chromatic_region_start";
     private static final String KEY_REGION_END = "chromatic_region_end";
+    // подстроенная задержка микрофона — у телефона она постоянная, запоминаем
+    private static final String KEY_LATENCY = "input_latency_ms";
+    // результаты последней игры (какие ноты сыграны, какие пропущены) — по песне/уроку
+    private static final String KEY_RESULTS_PREFIX = "results_";
 
     // ---------- views ----------
     private TextView titleView;
@@ -105,6 +111,10 @@ public class LessonDetailFragment extends Fragment {
     private MaterialSwitch switchVoice;
     private Button btnPlay;
     private View flashOverlay;
+    private ResultMapView resultMap;
+    private View mistakesPanel;
+    private TextView textMistakes;
+    private Button btnClearResults;
 
     // ---------- данные урока / песни ----------
     private String title;
@@ -281,6 +291,10 @@ public class LessonDetailFragment extends Fragment {
         lessonTiming = PlayTiming.evenBeats(notes.size(), PlayTiming.LESSON_BPM);
         freeMatcher = new StepMatcher(notes, results);
         timedMatcher = new TimedMatcher(notes, timing(), results);
+        if (getContext() != null) {
+            timedMatcher.setLatencyMs(prefs().getFloat(KEY_LATENCY, 60f));
+            restoreResults();
+        }
     }
 
     private PlayTiming timing() {
@@ -316,6 +330,10 @@ public class LessonDetailFragment extends Fragment {
         switchVoice = view.findViewById(R.id.switchVoice);
         btnPlay = view.findViewById(R.id.btnPlayLesson);
         flashOverlay = view.findViewById(R.id.flashOverlay);
+        resultMap = view.findViewById(R.id.resultMap);
+        mistakesPanel = view.findViewById(R.id.mistakesPanel);
+        textMistakes = view.findViewById(R.id.textMistakes);
+        btnClearResults = view.findViewById(R.id.btnClearResults);
 
         titleView.setText(title);
         tabView.setStringLabels(stringLabels);
@@ -333,6 +351,7 @@ public class LessonDetailFragment extends Fragment {
             else startLesson();
         });
         view.findViewById(R.id.btnListen).setOnClickListener(v -> listenCurrent());
+        setupMistakes(view);
 
         updateLessonUi();
         Anim.cascadeIn(view.findViewById(R.id.lessonContent));
@@ -546,10 +565,14 @@ public class LessonDetailFragment extends Fragment {
         if (notes.isEmpty()) return;
         currentIndex = Math.max(0, Math.min(notes.size() - 1, index));
         freeMatcher.seek(currentIndex);
-        clearResultsFrom(currentIndex);
+        // на паузе результаты не стираем: ошибки должны остаться видны при перемотке
 
         if (pitchDetector.isRunning()) {
-            if (timedRunning) startTimedTransport();
+            if (timedRunning) {
+                // перемотка во время игры под метроном — новая попытка с этого места
+                clearResultsFrom(currentIndex);
+                startTimedTransport();
+            }
             textHeard.setText("Сыграйте подсвеченную ноту");
         } else {
             btnPlay.setText("ИГРАТЬ");
@@ -645,7 +668,9 @@ public class LessonDetailFragment extends Fragment {
         if (timedRunning) {
             timedRunning = false;
             audioEngine.stopTransport();
+            prefs().edit().putFloat(KEY_LATENCY, (float) timedMatcher.latencyMs()).apply();
         }
+        if (getContext() != null) saveResults();
         if (btnPlay == null) return;
 
         tabView.setPlaying(false);
@@ -802,6 +827,82 @@ public class LessonDetailFragment extends Fragment {
         fretboardView.setLessonMarkers(current, next);
     }
 
+    // ---------- результаты и ошибки ----------
+
+    private void setupMistakes(View view) {
+        resultMap.setOnSeekListener(this::seekTo);
+        view.findViewById(R.id.btnPrevMistake).setOnClickListener(v -> {
+            int i = findMistake(Math.min(currentIndex, notes.size()) - 1, -1);
+            if (i >= 0) seekTo(i);
+        });
+        view.findViewById(R.id.btnNextMistake).setOnClickListener(v -> {
+            int i = findMistake(currentIndex + 1, 1);
+            if (i >= 0) seekTo(i);
+        });
+        btnClearResults.setOnClickListener(v -> {
+            clearResultsFrom(0);
+            saveResults();
+            updateLessonUi();
+        });
+    }
+
+    /** Ближайший пропуск, начиная с from, в направлении step (±1); -1 — нет. */
+    private int findMistake(int from, int step) {
+        for (int i = from; i >= 0 && i < results.length; i += step) {
+            if (results[i] == StepMatcher.MISS) return i;
+        }
+        return -1;
+    }
+
+    /** Карта прохождения и строка "Ошибок: N · такты …". */
+    private void updateMistakes() {
+        resultMap.setResults(results, Math.min(currentIndex, Math.max(0, notes.size() - 1)));
+        btnClearResults.setVisibility(hits + misses > 0 ? View.VISIBLE : View.GONE);
+
+        if (misses == 0) {
+            mistakesPanel.setVisibility(View.GONE);
+            return;
+        }
+        mistakesPanel.setVisibility(View.VISIBLE);
+
+        StringBuilder where = new StringBuilder();
+        int shown = 0;
+        int lastBar = -1;
+        for (int i = 0; i < results.length && shown < 8; i++) {
+            if (results[i] != StepMatcher.MISS) continue;
+            int place = bars != null ? bars[i] + 1 : i + 1;
+            if (place == lastBar) continue;
+            lastBar = place;
+            if (shown > 0) where.append(", ");
+            where.append(place);
+            shown++;
+        }
+        String unit = bars != null ? "такты " : "ноты ";
+        textMistakes.setText("Ошибок: " + misses + " · " + unit + where + (shown >= 8 ? "…" : ""));
+    }
+
+    private String resultsKey() {
+        if (stringLabels != null) return KEY_RESULTS_PREFIX + "song_" + speedKey;
+        String key = KEY_RESULTS_PREFIX + "lesson_" + title;
+        return regionSelectable ? key + "_" + regionStart + "_" + regionEnd : key;
+    }
+
+    private void saveResults() {
+        StringBuilder sb = new StringBuilder(results.length);
+        for (byte r : results) sb.append((char) ('0' + r));
+        prefs().edit().putString(resultsKey(), sb.toString()).apply();
+    }
+
+    private void restoreResults() {
+        String saved = prefs().getString(resultsKey(), null);
+        if (saved == null || saved.length() != results.length) return;
+        for (int i = 0; i < results.length; i++) {
+            int r = saved.charAt(i) - '0';
+            results[i] = r >= 0 && r <= 2 ? (byte) r : StepMatcher.NONE;
+        }
+        recountResults();
+    }
+
     private void updateStats() {
         int played = hits + misses;
         if (played == 0) {
@@ -812,6 +913,7 @@ public class LessonDetailFragment extends Fragment {
             int percent = Math.round(hits * 100f / played);
             textStats.setText("Верно " + hits + " · Мимо " + misses + " · " + percent + "%");
         }
+        updateMistakes();
     }
 
     // ---------- звук ----------
@@ -835,7 +937,11 @@ public class LessonDetailFragment extends Fragment {
             if (!timedRunning || countingIn) return;
             double songMs = audioEngine.getSongTimeMs();
             if (Double.isNaN(songMs)) return;
-            if (timedMatcher.onFrame(frame, songMs, speed)) {
+            // время песни в момент записи кадра (кадр мог постоять в очереди главного потока)
+            long waitedMs = frame.captureUptimeMs > 0
+                    ? Math.max(0, SystemClock.uptimeMillis() - frame.captureUptimeMs) : 0;
+            double songAtCapture = songMs - waitedMs * speed;
+            if (timedMatcher.onFrame(frame, songAtCapture, speed)) {
                 // под метроном шаги сменяет время — здесь только отмечаем попадание
                 recountResults();
                 flash(0.3f, 250);

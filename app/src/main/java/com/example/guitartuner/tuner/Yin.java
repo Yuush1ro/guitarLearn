@@ -10,6 +10,8 @@ public final class Yin {
 
     // порог: чем меньше, тем строже требование к "периодичности" сигнала
     private static final double THRESHOLD = 0.15;
+    // провал на 1/2 или 1/3 периода, достаточный, чтобы считать его настоящим периодом
+    private static final double OCTAVE_CHECK_THRESHOLD = 0.25;
 
     private final int sampleRate;
     private final int tauMin;
@@ -66,6 +68,7 @@ public final class Yin {
             lastAperiodicity = 1;
             return -1;
         }
+        tau = correctOctave(tau);
         lastAperiodicity = diff[tau];
 
         // 4. параболическая интерполяция для суб-сэмпловой точности
@@ -79,5 +82,27 @@ public final class Yin {
         }
 
         return sampleRate / betterTau;
+    }
+
+    /**
+     * Поверх звенящих струн провал на настоящем периоде бывает выше порога, и YIN берёт
+     * кратный (вдвое-втрое больший) — нота "уезжает" на октаву вниз. Если на 1/2 или 1/3
+     * найденного периода тоже есть хороший провал, настоящий период — он.
+     */
+    private int correctOctave(int tau) {
+        int best = tau;
+        for (int divisor = 3; divisor >= 2; divisor--) {
+            int center = Math.round(tau / (float) divisor);
+            int from = Math.max(tauMin, center - 2);
+            int to = Math.min(tauMax, center + 2);
+            int localMin = -1;
+            for (int t = from; t <= to; t++) {
+                if (localMin < 0 || diff[t] < diff[localMin]) localMin = t;
+            }
+            if (localMin >= 0 && diff[localMin] < OCTAVE_CHECK_THRESHOLD && localMin < best) {
+                best = localMin;
+            }
+        }
+        return best;
     }
 }

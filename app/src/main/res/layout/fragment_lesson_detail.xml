@@ -98,6 +98,61 @@
                             android:layout_height="wrap_content"
                             android:textAppearance="@style/TextAppearance.GuitarTuner.Hint"/>
                     </LinearLayout>
+
+                    <!-- карта прохождения: зелёное — сыграно, красное — пропущено; нажмите, чтобы перейти -->
+                    <com.example.guitartuner.views.ResultMapView
+                        android:id="@+id/resultMap"
+                        android:layout_width="match_parent"
+                        android:layout_height="22dp"
+                        android:layout_marginTop="10dp"
+                        android:contentDescription="Карта прохождения: нажмите, чтобы перейти к месту"/>
+
+                    <!-- ошибки: где пропущены ноты и переход к ним -->
+                    <LinearLayout
+                        android:id="@+id/mistakesPanel"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:visibility="gone">
+
+                        <TextView
+                            android:id="@+id/textMistakes"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="@color/gt_miss"/>
+
+                        <Button
+                            android:id="@+id/btnPrevMistake"
+                            style="@style/Widget.Material3.Button.TextButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:minWidth="0dp"
+                            android:contentDescription="К предыдущей ошибке"
+                            android:text="◀ ошибка"/>
+
+                        <Button
+                            android:id="@+id/btnNextMistake"
+                            style="@style/Widget.Material3.Button.TextButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:minWidth="0dp"
+                            android:contentDescription="К следующей ошибке"
+                            android:text="ошибка ▶"/>
+                    </LinearLayout>
+
+                    <Button
+                        android:id="@+id/btnClearResults"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="end"
+                        android:minHeight="0dp"
+                        android:text="Очистить результаты"
+                        android:textAppearance="?attr/textAppearanceLabelSmall"
+                        android:visibility="gone"/>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

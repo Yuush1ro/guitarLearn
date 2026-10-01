@@ -30,6 +30,9 @@ public class LessonsFragment extends Fragment {
 
         recyclerView.setAdapter(adapter);
 
+        view.findViewById(R.id.cardChords).setOnClickListener(v ->
+                Anim.openDetail(requireActivity(), new ChordsFragment()));
+
         return view;
     }
 }

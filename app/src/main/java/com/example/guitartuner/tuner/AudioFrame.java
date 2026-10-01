@@ -11,21 +11,26 @@ public final class AudioFrame {
     public final double confidence;
     /** Громкость (RMS, 0..1) свежих сэмплов кадра. */
     public final double level;
-    /** В этом кадре резко выросла громкость — новый щипок струны или удар по аккорду. */
+    /** В этом кадре новый щипок или удар по струнам (по громкости или по спектру). */
     public final boolean onset;
     /** Хромаграмма (12 нот, максимум = 1) или null, если не считалась. */
     public final double[] chroma;
+    /** Какие ноты только что зазвучали (рост энергии, максимум = 1); null — атаки нет. */
+    public final double[] onsetChroma;
     /** Время конца кадра от начала записи, мс. */
     public final long streamMs;
+    /** Когда кадр записан (SystemClock.uptimeMillis); 0 — неизвестно. Ставит PitchDetector. */
+    public long captureUptimeMs;
 
     public AudioFrame(boolean silent, double frequency, double confidence, double level,
-                      boolean onset, double[] chroma, long streamMs) {
+                      boolean onset, double[] chroma, double[] onsetChroma, long streamMs) {
         this.silent = silent;
         this.frequency = frequency;
         this.confidence = confidence;
         this.level = level;
         this.onset = onset;
         this.chroma = chroma;
+        this.onsetChroma = onsetChroma;
         this.streamMs = streamMs;
     }
 
