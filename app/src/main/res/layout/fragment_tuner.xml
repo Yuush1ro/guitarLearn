@@ -1,28 +1,88 @@
 <?xml version="1.0" encoding="utf-8"?>
-
-<LinearLayout
+<FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
-    android:orientation="vertical"
-    android:gravity="center"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <TextView
-        android:id="@+id/textView"
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:id="@+id/tunerContent"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingStart="16dp"
+        android:paddingTop="12dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="88dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="12dp"
+            android:text="Тюнер"
+            android:textAppearance="@style/TextAppearance.GuitarTuner.ScreenTitle"/>
+
+        <com.google.android.material.card.MaterialCardView
+            style="@style/Widget.GuitarTuner.Card"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Настройка"
+                    android:textAppearance="@style/TextAppearance.GuitarTuner.CardTitle"/>
+
+                <!-- нота и частота -->
+                <TextView
+                    android:id="@+id/textView"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center"
+                    android:text="—"
+                    android:textAppearance="@style/TextAppearance.GuitarTuner.BigNote"
+                    android:textSize="56sp"/>
+
+                <com.example.guitartuner.views.TunerView
+                    android:id="@+id/tunerView"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:minHeight="220dp"/>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="Стрелка в зелёной зоне — струна настроена"
+                    android:textAppearance="@style/TextAppearance.GuitarTuner.Hint"/>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="TUNER"
-        android:textSize="32sp"/>
+        android:layout_gravity="bottom"
+        android:background="@drawable/bg_bottom_bar"
+        android:paddingStart="16dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="12dp">
 
-    <com.example.guitartuner.views.TunerView
-        android:id="@+id/tunerView"
-        android:layout_width="300dp"
-        android:layout_height="300dp"/>
+        <Button
+            android:id="@+id/btnToggle"
+            style="@style/Widget.GuitarTuner.NeonButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="СТАРТ"/>
+    </FrameLayout>
 
-    <Button
-        android:id="@+id/btnToggle"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="START"/>
-
-</LinearLayout>
+</FrameLayout>

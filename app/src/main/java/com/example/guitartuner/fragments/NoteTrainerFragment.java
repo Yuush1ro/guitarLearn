@@ -9,10 +9,7 @@ import android.os.SystemClock;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -23,10 +20,14 @@ import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 
 import com.example.guitartuner.R;
+import com.example.guitartuner.audio.AudioEngine;
 import com.example.guitartuner.models.ScaleType;
+import com.example.guitartuner.models.TabNote;
 import com.example.guitartuner.tuner.NoteUtils;
 import com.example.guitartuner.tuner.PitchDetector;
+import com.example.guitartuner.ui.Anim;
 import com.example.guitartuner.views.FretboardView;
+import com.google.android.material.chip.Chip;
 import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.materialswitch.MaterialSwitch;
 
@@ -51,13 +52,14 @@ public class NoteTrainerFragment extends Fragment {
     private static final String KEY_REGION_START = "region_start";
     private static final String KEY_REGION_END = "region_end";
 
-    private Spinner spinnerRoot;
+    private ChipGroup chipGroupRoot;
     private ChipGroup chipGroupScale;
     private ChipGroup chipGroupPentatonic;
     private TextView textScaleNotes;
     private TextView textTargetNote;
     private TextView textHeard;
     private TextView textScore;
+    private TextView textStreak;
     private MaterialSwitch switchShowNotes;
     private MaterialSwitch switchRegion;
     private TextView textRegionHint;
@@ -73,6 +75,10 @@ public class NoteTrainerFragment extends Fragment {
 
     private int targetPitchClass = -1;
     private int score = 0;
+    // верных ответов подряд без подсказки "Послушать"
+    private int streak = 0;
+
+    private final AudioEngine audioEngine = new AudioEngine();
     private long correctSince = 0L;
     // пока true — ждём следующую ноту и не реагируем на звук
     private boolean waitingNextNote = false;
@@ -109,13 +115,14 @@ public class NoteTrainerFragment extends Fragment {
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         View view = inflater.inflate(R.layout.fragment_note_trainer, container, false);
 
-        spinnerRoot = view.findViewById(R.id.spinnerRoot);
+        chipGroupRoot = view.findViewById(R.id.chipGroupRoot);
         chipGroupScale = view.findViewById(R.id.chipGroupScale);
         chipGroupPentatonic = view.findViewById(R.id.chipGroupPentatonic);
         textScaleNotes = view.findViewById(R.id.textScaleNotes);
         textTargetNote = view.findViewById(R.id.textTargetNote);
         textHeard = view.findViewById(R.id.textHeard);
         textScore = view.findViewById(R.id.textScore);
+        textStreak = view.findViewById(R.id.textStreak);
         switchShowNotes = view.findViewById(R.id.switchShowNotes);
         switchRegion = view.findViewById(R.id.switchRegion);
         textRegionHint = view.findViewById(R.id.textRegionHint);
@@ -124,7 +131,7 @@ public class NoteTrainerFragment extends Fragment {
         flashOverlay = view.findViewById(R.id.flashOverlay);
 
         restoreSettings();
-        setupRootSpinner();
+        setupRootChips();
         setupScaleChips();
         setupFretboardControls();
 
@@ -132,31 +139,36 @@ public class NoteTrainerFragment extends Fragment {
             if (pitchDetector.isRunning()) stopTraining();
             else startTraining();
         });
+        view.findViewById(R.id.btnListenTrainer).setOnClickListener(v -> listenTarget());
 
         applyScale();
+        Anim.cascadeIn(view.findViewById(R.id.trainerContent));
         return view;
     }
 
     // ---------- настройки ----------
 
-    private void setupRootSpinner() {
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(requireContext(),
-                android.R.layout.simple_spinner_item, NoteUtils.NOTE_NAMES);
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        spinnerRoot.setAdapter(adapter);
-        spinnerRoot.setSelection(rootPitchClass, false);
+    // 12 чипов C … B в одну прокручиваемую строку
+    private void setupRootChips() {
+        for (int pc = 0; pc < 12; pc++) {
+            Chip chip = new Chip(requireContext(), null,
+                    com.google.android.material.R.attr.chipStyle);
+            chip.setId(View.generateViewId());
+            chip.setTag(pc);
+            chip.setText(NoteUtils.NOTE_NAMES[pc]);
+            chip.setCheckable(true);
+            chip.setCheckedIconVisible(false);
+            chipGroupRoot.addView(chip);
+            if (pc == rootPitchClass) chipGroupRoot.check(chip.getId());
+        }
 
-        spinnerRoot.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                if (position == rootPitchClass) return;
-                rootPitchClass = position;
-                applyScale();
-            }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {
-            }
+        chipGroupRoot.setOnCheckedStateChangeListener((group, checkedIds) -> {
+            if (checkedIds.isEmpty()) return;
+            Chip chip = group.findViewById(checkedIds.get(0));
+            int pc = (int) chip.getTag();
+            if (pc == rootPitchClass) return;
+            rootPitchClass = pc;
+            applyScale();
         });
     }
 
@@ -266,7 +278,9 @@ public class NoteTrainerFragment extends Fragment {
         }
 
         score = 0;
+        streak = 0;
         textScore.setText("Верно: 0");
+        textStreak.setText("Серия: 0");
         pitchDetector.start();
         btnStart.setText("СТОП");
         pickNextTarget();
@@ -303,6 +317,7 @@ public class NoteTrainerFragment extends Fragment {
         targetPitchClass = next;
         correctSince = 0L;
         textTargetNote.setText(NoteUtils.NOTE_NAMES[next]);
+        Anim.pop(textTargetNote);
         textHeard.setText("Сыграйте эту ноту");
         fretboardView.setTargetPitchClass(next);
     }
@@ -310,6 +325,8 @@ public class NoteTrainerFragment extends Fragment {
     // вызывается в главном потоке (так гарантирует PitchDetector)
     private void onPitch(double frequencyHz) {
         if (targetPitchClass < 0 || waitingNextNote) return;
+        // звучит подсказка из динамика — это не игра пользователя
+        if (audioEngine.isPreviewPlaying()) return;
 
         NoteUtils.NoteInfo note = NoteUtils.frequencyToNote(frequencyHz);
         if (note == null) return;
@@ -330,9 +347,25 @@ public class NoteTrainerFragment extends Fragment {
         }
     }
 
+    /** Проиграть загаданную ноту (в удобной средней октаве: E3 … D#4). */
+    private void listenTarget() {
+        if (targetPitchClass < 0) {
+            textHeard.setText("Сначала нажмите СТАРТ");
+            return;
+        }
+        int midi = 52 + ((targetPitchClass - 4 + 12) % 12);
+        audioEngine.playStep(new TabNote(1, 0, midi));
+        // с подсказкой серия обнуляется
+        streak = 0;
+        textStreak.setText("Серия: 0");
+        correctSince = 0L;
+    }
+
     private void onCorrectNote(String playedName) {
         score++;
+        streak++;
         textScore.setText("Верно: " + score);
+        textStreak.setText("Серия: " + streak);
         textHeard.setText("Верно! " + playedName);
 
         flashGreen();
@@ -383,8 +416,9 @@ public class NoteTrainerFragment extends Fragment {
     @Override
     public void onPause() {
         super.onPause();
-        // не держим микрофон, когда экран не виден
+        // не держим микрофон и звук, когда экран не виден
         stopTraining();
+        audioEngine.release();
     }
 
     @Override

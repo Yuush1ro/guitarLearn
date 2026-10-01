@@ -7,7 +7,13 @@ import org.jtransforms.fft.DoubleFFT_1D;
  * без учёта октавы. Нужна для аккордов — YIN слышит только одну ноту.
  *
  * Берём пики спектра, уточняем их частоту параболической интерполяцией
- * и складываем амплитуды в ноту, к которой пик ближе всего.
+ * и складываем амплитуды в ноту, к которой пик ближе всего. Обертоны мешают:
+ * гармонический ряд одной ноты E — это E, E, B, E, G#, B… то есть почти мажорный
+ * аккорд. Поэтому
+ *  - высокие пики ослабляются (чаще это обертоны, чем ноты аккорда), и
+ *  - пик, частота которого в целое число раз выше более низкого пика, считается
+ *    обертоном и тоже ослабляется. Нота аккорда при этом не теряется: её самый
+ *    нижний экземпляр обертоном не является.
  */
 public class ChromaAnalyzer {
 
@@ -17,6 +23,15 @@ public class ChromaAnalyzer {
     private static final double PEAK_THRESHOLD = 0.03;
     // пик дальше этого (в полутонах) от ближайшей ноты не считаем нотой
     private static final double MAX_DETUNE_SEMITONES = 0.4;
+    // выше этой частоты вес пика убывает как 1/f
+    private static final double TILT_PIVOT_HZ = 200.0;
+    // какие кратные частоты проверяем на обертон и с каким допуском по отношению частот
+    // (струны чуть негармоничны, а частота низкого пика известна неточно)
+    private static final int MAX_HARMONIC = 12;
+    private static final double HARMONIC_TOLERANCE = 0.12;
+    // во сколько раз ослабляем обертон
+    private static final double HARMONIC_WEIGHT = 0.25;
+    private static final int MAX_PEAKS = 128;
 
     private final int sampleRate;
     private final int size;
@@ -24,6 +39,9 @@ public class ChromaAnalyzer {
     private final double[] hann;
     private final double[] buffer;
     private final double[] magnitudes;
+    private final double[] peakFreq = new double[MAX_PEAKS];
+    private final double[] peakWeight = new double[MAX_PEAKS];
+    private final int[] peakPitchClass = new int[MAX_PEAKS];
 
     public ChromaAnalyzer(int sampleRate, int size) {
         this.sampleRate = sampleRate;
@@ -57,7 +75,9 @@ public class ChromaAnalyzer {
         if (maxMag == 0) return chroma;
         double threshold = maxMag * PEAK_THRESHOLD;
 
-        for (int k = kMin; k <= kMax; k++) {
+        // 1. пики спектра (по возрастанию частоты)
+        int peaks = 0;
+        for (int k = kMin; k <= kMax && peaks < MAX_PEAKS; k++) {
             double m = magnitudes[k];
             if (m < threshold || m <= magnitudes[k - 1] || m < magnitudes[k + 1]) continue;
 
@@ -73,7 +93,16 @@ public class ChromaAnalyzer {
             long nearest = Math.round(midi);
             if (Math.abs(midi - nearest) > MAX_DETUNE_SEMITONES) continue;
 
-            chroma[(int) (((nearest % 12) + 12) % 12)] += m;
+            peakFreq[peaks] = freq;
+            peakWeight[peaks] = m * Math.min(1.0, TILT_PIVOT_HZ / freq);
+            peakPitchClass[peaks] = (int) (((nearest % 12) + 12) % 12);
+            peaks++;
+        }
+
+        // 2. обертоны более низких пиков ослабляем
+        for (int p = 0; p < peaks; p++) {
+            if (isHarmonicOfLowerPeak(p)) peakWeight[p] *= HARMONIC_WEIGHT;
+            chroma[peakPitchClass[p]] += peakWeight[p];
         }
 
         double max = 0;
@@ -82,5 +111,16 @@ public class ChromaAnalyzer {
             for (int i = 0; i < 12; i++) chroma[i] /= max;
         }
         return chroma;
+    }
+
+    private boolean isHarmonicOfLowerPeak(int p) {
+        for (int q = 0; q < p; q++) {
+            double ratio = peakFreq[p] / peakFreq[q];
+            long h = Math.round(ratio);
+            if (h >= 2 && h <= MAX_HARMONIC && Math.abs(ratio - h) < HARMONIC_TOLERANCE) {
+                return true;
+            }
+        }
+        return false;
     }
 }

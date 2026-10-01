@@ -7,9 +7,73 @@
 </head>
 <body>
 <script>
+    const QUARTER_TICKS = 960; // длительность четверти в тиках AlphaTab
+
+    /**
+     * Время тактов с учётом смены темпа (в том числе посреди такта).
+     * Для каждого такта: t — начало в мс, msAt(тик внутри такта) — смещение в мс,
+     * num/den — размер, dur — длительность в тиках.
+     */
+    function buildTiming(score) {
+      const bars = [];
+      let bpm = score.tempo || 120;
+      let t = 0;
+      for (const masterBar of score.masterBars) {
+        const dur = masterBar.calculateDuration();
+        const automations = (masterBar.tempoAutomations || [])
+            .slice()
+            .sort((a, b) => a.ratioPosition - b.ratioPosition);
+
+        const segments = [{ tick: 0, bpm: bpm }];
+        for (const a of automations) {
+          const tick = a.ratioPosition * dur;
+          if (tick <= 0) segments[0].bpm = a.value;
+          else segments.push({ tick: tick, bpm: a.value });
+        }
+
+        const msAt = (tick) => {
+          let ms = 0;
+          for (let i = 0; i < segments.length; i++) {
+            const from = segments[i].tick;
+            const to = i + 1 < segments.length ? Math.min(segments[i + 1].tick, tick) : tick;
+            if (to <= from) break;
+            ms += (to - from) * 60000 / (segments[i].bpm * QUARTER_TICKS);
+          }
+          return ms;
+        };
+
+        bars.push({
+          t: t, msAt: msAt, dur: dur,
+          num: masterBar.timeSignatureNumerator,
+          den: masterBar.timeSignatureDenominator
+        });
+        t += msAt(dur);
+        bpm = segments[segments.length - 1].bpm;
+      }
+      return bars;
+    }
+
+    // щелчки метронома: каждая доля такта, первая — с акцентом. [[мс, 1|0], ...]
+    function buildClicks(bars) {
+      const clicks = [];
+      for (const bar of bars) {
+        const beatTicks = QUARTER_TICKS * 4 / bar.den;
+        for (let k = 0; k < bar.num; k++) {
+          const tick = k * beatTicks;
+          if (tick >= bar.dur) break; // неполный (затактовый) такт
+          clicks.push([round1(bar.t + bar.msAt(tick)), k === 0 ? 1 : 0]);
+        }
+      }
+      return clicks;
+    }
+
+    function round1(ms) {
+      return Math.round(ms * 10) / 10;
+    }
+
     // Номер струны в AlphaTab: 1 = самая толстая. staff.tuning: от верхней струны к нижней.
-    // Каждый шаг: { n: [[струна, лад, midi], ...], c: "название аккорда", b: номер такта с 0 }
-    function extractTrack(track, index) {
+    // Каждый шаг: { n: [[струна, лад, midi], ...], c: "аккорд", b: такт с 0, t: начало мс, d: длительность мс }
+    function extractTrack(track, index, timing) {
       const staff = track.staves[0];
       const result = {
         index: index,
@@ -26,6 +90,8 @@
         const bar = staff.bars[barIndex];
         const voice = bar.voices[0];
         if (!voice) continue;
+        const barTiming = timing[barIndex];
+
         for (const beat of voice.beats) {
           // паузы и форшлаги пропускаем
           if (beat.isRest || beat.isEmpty || beat.graceType !== 0) continue;
@@ -45,7 +111,14 @@
           } catch (e) {
             // название аккорда необязательно
           }
-          result.steps.push({ n: notes, c: chordName, b: barIndex });
+
+          const step = { n: notes, c: chordName, b: barIndex };
+          if (barTiming) {
+            const start = barTiming.msAt(beat.playbackStart);
+            step.t = round1(barTiming.t + start);
+            step.d = round1(barTiming.msAt(beat.playbackStart + beat.playbackDuration) - start);
+          }
+          result.steps.push(step);
         }
       }
       return result;
@@ -58,10 +131,13 @@
         for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
         const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(bytes, new alphaTab.Settings());
+        const timing = buildTiming(score);
         const song = {
           title: score.title || '',
           artist: score.artist || '',
-          tracks: score.tracks.map(extractTrack)
+          tempo: score.tempo || 120,
+          clicks: buildClicks(timing),
+          tracks: score.tracks.map((track, i) => extractTrack(track, i, timing))
         };
         Android.onParsed(JSON.stringify(song));
       } catch (e) {

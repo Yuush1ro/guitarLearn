@@ -89,48 +89,48 @@ public class FretboardView extends View {
         super(context, attrs);
         density = getResources().getDisplayMetrics().density;
 
-        boardPaint.setColor(Color.parseColor("#5D4037"));
+        boardPaint.setColor(Color.parseColor("#15110F")); // тёмное "эбеновое" дерево
 
-        fretPaint.setColor(Color.parseColor("#BDBDBD"));
+        fretPaint.setColor(Color.parseColor("#5A606B"));
         fretPaint.setStrokeWidth(dp(2));
 
-        nutPaint.setColor(Color.parseColor("#EEEEEE"));
+        nutPaint.setColor(Color.parseColor("#E8E2D6"));
         nutPaint.setStrokeWidth(dp(5));
 
-        stringPaint.setColor(Color.parseColor("#E0E0E0"));
+        stringPaint.setColor(Color.parseColor("#9AA3AF"));
 
-        inlayPaint.setColor(Color.parseColor("#8D6E63"));
+        inlayPaint.setColor(Color.parseColor("#3A302A"));
 
-        dimPaint.setColor(Color.argb(150, 0, 0, 0));
+        dimPaint.setColor(Color.argb(170, 0, 0, 0));
 
-        regionBorderPaint.setColor(Color.parseColor("#FFC107"));
+        regionBorderPaint.setColor(Color.parseColor("#FF8A1F"));
         regionBorderPaint.setStyle(Paint.Style.STROKE);
         regionBorderPaint.setStrokeWidth(dp(2));
 
-        pendingPaint.setColor(Color.argb(90, 255, 193, 7));
+        pendingPaint.setColor(Color.argb(80, 255, 138, 31));
 
-        targetPaint.setColor(Color.parseColor("#FF9800"));
+        targetPaint.setColor(Color.parseColor("#FF8A1F"));
 
-        scaleNotePaint.setColor(Color.argb(170, 144, 202, 249));
+        scaleNotePaint.setColor(Color.argb(150, 255, 177, 92));
 
-        targetTextPaint.setColor(Color.BLACK);
+        targetTextPaint.setColor(Color.parseColor("#1C0B00"));
         targetTextPaint.setTextAlign(Paint.Align.CENTER);
         targetTextPaint.setFakeBoldText(true);
 
-        scaleTextPaint.setColor(Color.parseColor("#0D47A1"));
+        scaleTextPaint.setColor(Color.parseColor("#2A1500"));
         scaleTextPaint.setTextAlign(Paint.Align.CENTER);
 
-        fretNumberPaint.setColor(Color.GRAY);
+        fretNumberPaint.setColor(Color.parseColor("#6B7380"));
         fretNumberPaint.setTextAlign(Paint.Align.CENTER);
         fretNumberPaint.setTextSize(dp(11));
 
-        glowPaint.setColor(Color.parseColor("#FFB74D"));
+        glowPaint.setColor(Color.parseColor("#FF8A1F"));
 
-        nextMarkerPaint.setColor(Color.parseColor("#90CAF9"));
+        nextMarkerPaint.setColor(Color.parseColor("#FFB15C"));
         nextMarkerPaint.setStyle(Paint.Style.STROKE);
         nextMarkerPaint.setStrokeWidth(dp(2));
 
-        nextMarkerTextPaint.setColor(Color.parseColor("#E3F2FD"));
+        nextMarkerTextPaint.setColor(Color.parseColor("#FFCF99"));
         nextMarkerTextPaint.setTextAlign(Paint.Align.CENTER);
         nextMarkerTextPaint.setFakeBoldText(true);
     }

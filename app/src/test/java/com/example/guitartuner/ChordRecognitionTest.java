@@ -89,6 +89,8 @@ public class ChordRecognitionTest {
     public void singleBassNoteIsNotAFullChord() {
         assertTrue(matchRate(new int[]{40}, E) <= 0.1);
         assertTrue(matchRate(new int[]{45}, A) <= 0.1);
+        // квинта B есть в обертонах E2, но подавление обертонов не даёт засчитать E5
+        assertTrue(matchRate(new int[]{40}, new int[]{40, 47, 52}) <= 0.1);
     }
 
     @Test

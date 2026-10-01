@@ -1,5 +1,6 @@
 package com.example.guitartuner.songs;
 
+import com.example.guitartuner.models.PlayTiming;
 import com.example.guitartuner.models.TabNote;
 
 import org.json.JSONArray;
@@ -28,14 +29,18 @@ public class ParsedSong {
         public final List<TabNote> notes;
         // номер такта (с 0) для каждого шага
         public final int[] bars;
+        // время шагов и метроном; null — в файле не было данных о времени
+        public final PlayTiming timing;
 
-        Track(String name, boolean percussion, int[] tuning, int capo, List<TabNote> notes, int[] bars) {
+        Track(String name, boolean percussion, int[] tuning, int capo, List<TabNote> notes,
+              int[] bars, PlayTiming timing) {
             this.name = name;
             this.percussion = percussion;
             this.tuning = tuning;
             this.capo = capo;
             this.notes = notes;
             this.bars = bars;
+            this.timing = timing;
         }
 
         /** Уроки рассчитаны на 6-струнную гитару. */
@@ -69,6 +74,17 @@ public class ParsedSong {
         JSONObject root = new JSONObject(json);
         List<Track> tracks = new ArrayList<>();
 
+        // метроном общий для всех дорожек
+        double tempo = root.optDouble("tempo", 120);
+        JSONArray jsonClicks = root.optJSONArray("clicks");
+        double[] clickTimes = new double[jsonClicks == null ? 0 : jsonClicks.length()];
+        boolean[] clickAccents = new boolean[clickTimes.length];
+        for (int i = 0; i < clickTimes.length; i++) {
+            JSONArray click = jsonClicks.getJSONArray(i);
+            clickTimes[i] = click.getDouble(0);
+            clickAccents[i] = click.getInt(1) == 1;
+        }
+
         JSONArray jsonTracks = root.getJSONArray("tracks");
         for (int t = 0; t < jsonTracks.length(); t++) {
             JSONObject jt = jsonTracks.getJSONObject(t);
@@ -82,9 +98,18 @@ public class ParsedSong {
             List<TabNote> steps = new ArrayList<>();
             JSONArray jsonSteps = jt.getJSONArray("steps");
             int[] bars = new int[jsonSteps.length()];
+            double[] starts = new double[jsonSteps.length()];
+            double[] durations = new double[jsonSteps.length()];
+            boolean hasTiming = jsonClicks != null;
             for (int i = 0; i < jsonSteps.length(); i++) {
                 JSONObject step = jsonSteps.getJSONObject(i);
                 bars[i] = step.optInt("b", 0);
+                if (step.has("t")) {
+                    starts[i] = step.getDouble("t");
+                    durations[i] = step.getDouble("d");
+                } else {
+                    hasTiming = false;
+                }
                 JSONArray jsonNotes = step.getJSONArray("n");
 
                 List<TabNote> notes = new ArrayList<>();
@@ -103,7 +128,8 @@ public class ParsedSong {
                     tuning,
                     jt.optInt("capo", 0),
                     steps,
-                    bars));
+                    bars,
+                    hasTiming ? new PlayTiming(tempo, starts, durations, clickTimes, clickAccents) : null));
         }
 
         return new ParsedSong(root.optString("title", ""), root.optString("artist", ""), tracks);

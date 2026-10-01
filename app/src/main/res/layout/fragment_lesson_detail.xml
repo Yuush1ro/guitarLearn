@@ -5,190 +5,435 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <LinearLayout
+    <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="vertical"
+        android:clipToPadding="false"
+        android:paddingBottom="88dp">
+
+        <LinearLayout
+            android:id="@+id/lessonContent"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="16dp"
+            android:paddingTop="12dp"
+            android:paddingEnd="16dp">
+
+            <TextView
+                android:id="@+id/textLessonTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingBottom="12dp"
+                android:text="Урок"
+                android:textAppearance="@style/TextAppearance.GuitarTuner.ScreenTitle"/>
+
+            <!-- ===== Блок 1: что играть сейчас + шкала прохождения ===== -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.GuitarTuner.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Сейчас"
+                        android:textAppearance="@style/TextAppearance.GuitarTuner.CardTitle"/>
+
+                    <TextView
+                        android:id="@+id/textCurrentNote"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="—"
+                        android:textAppearance="@style/TextAppearance.GuitarTuner.BigNote"
+                        android:textSize="72sp"/>
+
+                    <TextView
+                        android:id="@+id/textPosition"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:textAppearance="?attr/textAppearanceTitleMedium"/>
+
+                    <TextView
+                        android:id="@+id/textHeard"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:paddingTop="4dp"
+                        android:text="Нажмите ИГРАТЬ"
+                        android:textAppearance="@style/TextAppearance.GuitarTuner.Label"/>
+
+                    <!-- шкала прохождения -->
+                    <com.google.android.material.progressindicator.LinearProgressIndicator
+                        android:id="@+id/progressLesson"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        app:trackCornerRadius="4dp"
+                        app:trackThickness="8dp"/>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:paddingTop="6dp">
+
+                        <TextView
+                            android:id="@+id/textProgress"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:textAppearance="@style/TextAppearance.GuitarTuner.Hint"/>
+
+                        <TextView
+                            android:id="@+id/textStats"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textAppearance="@style/TextAppearance.GuitarTuner.Hint"/>
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ===== Блок 2: ноты (лента или гриф) и перемотка ===== -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.GuitarTuner.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <com.google.android.material.button.MaterialButtonToggleGroup
+                        android:id="@+id/toggleViewMode"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:selectionRequired="true"
+                        app:singleSelection="true">
+
+                        <Button
+                            android:id="@+id/btnViewTab"
+                            style="?attr/materialButtonOutlinedStyle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Бегущие ноты"/>
+
+                        <Button
+                            android:id="@+id/btnViewFretboard"
+                            style="?attr/materialButtonOutlinedStyle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Гриф"/>
+                    </com.google.android.material.button.MaterialButtonToggleGroup>
+
+                    <FrameLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="170dp"
+                        android:layout_marginTop="8dp">
+
+                        <com.example.guitartuner.views.TabView
+                            android:id="@+id/tabView"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"/>
+
+                        <com.example.guitartuner.views.FretboardView
+                            android:id="@+id/fretboardView"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:visibility="gone"/>
+                    </FrameLayout>
+
+                    <!-- перемотка: в начало, назад/вперёд на такт (или ноту), ползунок -->
+                    <LinearLayout
+                        android:id="@+id/seekPanel"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingTop="4dp">
+
+                        <Button
+                            android:id="@+id/btnSeekStart"
+                            style="@style/Widget.Material3.Button.TextButton"
+                            android:layout_width="44dp"
+                            android:layout_height="wrap_content"
+                            android:contentDescription="В начало"
+                            android:minWidth="0dp"
+                            android:paddingStart="0dp"
+                            android:paddingEnd="0dp"
+                            android:text="⏮"
+                            android:textSize="18sp"/>
+
+                        <Button
+                            android:id="@+id/btnSeekPrev"
+                            style="@style/Widget.Material3.Button.TextButton"
+                            android:layout_width="44dp"
+                            android:layout_height="wrap_content"
+                            android:contentDescription="Назад"
+                            android:minWidth="0dp"
+                            android:paddingStart="0dp"
+                            android:paddingEnd="0dp"
+                            android:text="◀"
+                            android:textSize="18sp"/>
+
+                        <com.google.android.material.slider.Slider
+                            android:id="@+id/seekSlider"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:contentDescription="Позиция"
+                            android:stepSize="1"
+                            android:valueFrom="0"
+                            android:valueTo="1"/>
+
+                        <Button
+                            android:id="@+id/btnSeekNext"
+                            style="@style/Widget.Material3.Button.TextButton"
+                            android:layout_width="44dp"
+                            android:layout_height="wrap_content"
+                            android:contentDescription="Вперёд"
+                            android:minWidth="0dp"
+                            android:paddingStart="0dp"
+                            android:paddingEnd="0dp"
+                            android:text="▶"
+                            android:textSize="18sp"/>
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ===== Блок 3: участок грифа (только хроматический урок) ===== -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/regionPanel"
+                style="@style/Widget.GuitarTuner.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Участок грифа"
+                        android:textAppearance="@style/TextAppearance.GuitarTuner.CardTitle"/>
+
+                    <TextView
+                        android:id="@+id/textRegion"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingTop="6dp"
+                        android:textAppearance="@style/TextAppearance.GuitarTuner.Label"/>
+
+                    <com.google.android.material.slider.RangeSlider
+                        android:id="@+id/rangeRegion"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:stepSize="1"
+                        android:valueFrom="0"
+                        android:valueTo="12"/>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ===== Блок 4: режим игры и темп ===== -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.GuitarTuner.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Режим"
+                        android:textAppearance="@style/TextAppearance.GuitarTuner.CardTitle"/>
+
+                    <com.google.android.material.button.MaterialButtonToggleGroup
+                        android:id="@+id/togglePlayMode"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        app:selectionRequired="true"
+                        app:singleSelection="true">
+
+                        <Button
+                            android:id="@+id/btnModeFree"
+                            style="?attr/materialButtonOutlinedStyle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Свой темп"/>
+
+                        <Button
+                            android:id="@+id/btnModeMetronome"
+                            style="?attr/materialButtonOutlinedStyle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Под метроном"/>
+                    </com.google.android.material.button.MaterialButtonToggleGroup>
+
+                    <TextView
+                        android:id="@+id/textModeHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingTop="6dp"
+                        android:textAppearance="@style/TextAppearance.GuitarTuner.Hint"/>
+
+                    <!-- настройки метронома -->
+                    <LinearLayout
+                        android:id="@+id/tempoPanel"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingTop="8dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <Button
+                                android:id="@+id/btnTempoDown"
+                                style="@style/Widget.Material3.Button.TonalButton"
+                                android:layout_width="56dp"
+                                android:layout_height="wrap_content"
+                                android:contentDescription="Медленнее"
+                                android:minWidth="0dp"
+                                android:text="−"
+                                android:textSize="20sp"/>
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:gravity="center"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:id="@+id/textTempo"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:textAppearance="?attr/textAppearanceHeadlineSmall"
+                                    android:textStyle="bold"/>
+
+                                <TextView
+                                    android:id="@+id/textTempoInfo"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:textAppearance="@style/TextAppearance.GuitarTuner.Hint"/>
+                            </LinearLayout>
+
+                            <Button
+                                android:id="@+id/btnTempoUp"
+                                style="@style/Widget.Material3.Button.TonalButton"
+                                android:layout_width="56dp"
+                                android:layout_height="wrap_content"
+                                android:contentDescription="Быстрее"
+                                android:minWidth="0dp"
+                                android:text="+"
+                                android:textSize="20sp"/>
+                        </LinearLayout>
+
+                        <com.google.android.material.chip.ChipGroup
+                            android:id="@+id/chipGroupSpeed"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center_horizontal"
+                            app:singleSelection="true">
+
+                            <com.google.android.material.chip.Chip
+                                android:id="@+id/chipSpeed50"
+                                style="@style/Widget.Material3.Chip.Suggestion"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="50%"/>
+
+                            <com.google.android.material.chip.Chip
+                                android:id="@+id/chipSpeed75"
+                                style="@style/Widget.Material3.Chip.Suggestion"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="75%"/>
+
+                            <com.google.android.material.chip.Chip
+                                android:id="@+id/chipSpeed100"
+                                style="@style/Widget.Material3.Chip.Suggestion"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="100%"/>
+                        </com.google.android.material.chip.ChipGroup>
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switchClicks"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:checked="true"
+                            android:text="Щелчки метронома"/>
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switchVoice"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Озвучивать ноты"/>
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Озвучку нот лучше слушать в наушниках — иначе микрофон услышит её вместо вашей игры"
+                            android:textAppearance="@style/TextAppearance.GuitarTuner.Hint"/>
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+
+    <!-- кнопки всегда видны внизу экрана -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="@drawable/bg_bottom_bar"
+        android:orientation="horizontal"
         android:paddingStart="16dp"
         android:paddingTop="8dp"
         android:paddingEnd="16dp"
         android:paddingBottom="12dp">
 
-        <TextView
-            android:id="@+id/textLessonTitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:paddingBottom="8dp"
-            android:text="Урок"
-            android:textSize="20sp"
-            android:textStyle="bold"/>
-
-        <!-- переключение вида: бегущие ноты / гриф -->
-        <com.google.android.material.button.MaterialButtonToggleGroup
-            android:id="@+id/toggleViewMode"
+        <Button
+            android:id="@+id/btnListen"
+            style="@style/Widget.Material3.Button.TonalButton"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            app:selectionRequired="true"
-            app:singleSelection="true">
-
-            <Button
-                android:id="@+id/btnViewTab"
-                style="?attr/materialButtonOutlinedStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Бегущие ноты"/>
-
-            <Button
-                android:id="@+id/btnViewFretboard"
-                style="?attr/materialButtonOutlinedStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Гриф"/>
-        </com.google.android.material.button.MaterialButtonToggleGroup>
-
-        <!-- выбор участка грифа (только для хроматического урока) -->
-        <LinearLayout
-            android:id="@+id/regionPanel"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingTop="8dp"
-            android:visibility="gone">
-
-            <TextView
-                android:id="@+id/textRegion"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textSize="14sp"/>
-
-            <com.google.android.material.slider.RangeSlider
-                android:id="@+id/rangeRegion"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:stepSize="1"
-                android:valueFrom="0"
-                android:valueTo="12"/>
-        </LinearLayout>
-
-        <!-- текущая нота -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:minHeight="120dp"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/textCurrentNote"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="—"
-                android:textSize="72sp"
-                android:textStyle="bold"/>
-
-            <TextView
-                android:id="@+id/textPosition"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textSize="16sp"/>
-
-            <TextView
-                android:id="@+id/textHeard"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:paddingTop="4dp"
-                android:text="Нажмите ИГРАТЬ"
-                android:textSize="16sp"/>
-
-            <TextView
-                android:id="@+id/textProgress"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:paddingTop="4dp"
-                android:textSize="16sp"/>
-        </LinearLayout>
-
-        <!-- перемотка: в начало, назад/вперёд на такт (или ноту), ползунок по всей песне -->
-        <LinearLayout
-            android:id="@+id/seekPanel"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btnSeekStart"
-                style="@style/Widget.Material3.Button.TextButton"
-                android:layout_width="44dp"
-                android:layout_height="wrap_content"
-                android:contentDescription="В начало"
-                android:minWidth="0dp"
-                android:paddingStart="0dp"
-                android:paddingEnd="0dp"
-                android:text="⏮"
-                android:textSize="18sp"/>
-
-            <Button
-                android:id="@+id/btnSeekPrev"
-                style="@style/Widget.Material3.Button.TextButton"
-                android:layout_width="44dp"
-                android:layout_height="wrap_content"
-                android:contentDescription="Назад"
-                android:minWidth="0dp"
-                android:paddingStart="0dp"
-                android:paddingEnd="0dp"
-                android:text="◀"
-                android:textSize="18sp"/>
-
-            <com.google.android.material.slider.Slider
-                android:id="@+id/seekSlider"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:contentDescription="Позиция в песне"
-                android:stepSize="1"
-                android:valueFrom="0"
-                android:valueTo="1"/>
-
-            <Button
-                android:id="@+id/btnSeekNext"
-                style="@style/Widget.Material3.Button.TextButton"
-                android:layout_width="44dp"
-                android:layout_height="wrap_content"
-                android:contentDescription="Вперёд"
-                android:minWidth="0dp"
-                android:paddingStart="0dp"
-                android:paddingEnd="0dp"
-                android:text="▶"
-                android:textSize="18sp"/>
-        </LinearLayout>
-
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="170dp">
-
-            <com.example.guitartuner.views.TabView
-                android:id="@+id/tabView"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"/>
-
-            <com.example.guitartuner.views.FretboardView
-                android:id="@+id/fretboardView"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:visibility="gone"/>
-        </FrameLayout>
+            android:layout_height="56dp"
+            android:layout_marginEnd="8dp"
+            android:contentDescription="Послушать, как звучит нота"
+            android:text="🔊 Послушать"/>
 
         <Button
             android:id="@+id/btnPlayLesson"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:layout_marginTop="8dp"
-            android:text="ИГРАТЬ"/>
+            style="@style/Widget.GuitarTuner.NeonButton"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_weight="1"
+            android:text="ИГРАТЬ"
+            android:textAppearance="?attr/textAppearanceTitleMedium"/>
     </LinearLayout>
 
     <!-- зелёная вспышка при верной ноте; поверх всего, касания не перехватывает -->
@@ -197,7 +442,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:alpha="0"
-        android:background="#4CAF50"
+        android:background="@color/gt_hit"
         android:clickable="false"
         android:focusable="false"
         android:importantForAccessibility="no"/>

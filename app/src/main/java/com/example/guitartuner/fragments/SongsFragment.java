@@ -24,6 +24,7 @@ import com.example.guitartuner.models.Song;
 import com.example.guitartuner.songs.ParsedSong;
 import com.example.guitartuner.songs.SongConverter;
 import com.example.guitartuner.songs.SongStore;
+import com.example.guitartuner.ui.Anim;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 
@@ -216,7 +217,7 @@ public class SongsFragment extends Fragment {
     private void saveAndOpen(File source, ParsedSong song, ParsedSong.Track track) {
         String title = song.title.isEmpty() ? stripExtension(source.getName()) : song.title;
         SongStore.ConvertedSong converted =
-                new SongStore.ConvertedSong(title, track.name, track.tuning, track.notes, track.bars);
+                new SongStore.ConvertedSong(title, track.name, track.tuning, track.notes, track.bars, track.timing);
 
         File convertedFile = SongStore.convertedFile(requireContext(), source);
         try {
@@ -244,11 +245,7 @@ public class SongsFragment extends Fragment {
     }
 
     private void openPlayer(File convertedFile) {
-        requireActivity().getSupportFragmentManager()
-                .beginTransaction()
-                .replace(R.id.fragmentContainer, LessonDetailFragment.newInstanceForSong(convertedFile))
-                .addToBackStack(null)
-                .commit();
+        Anim.openDetail(requireActivity(), LessonDetailFragment.newInstanceForSong(convertedFile));
     }
 
     private void showSongMenu(Song song) {
@@ -261,12 +258,8 @@ public class SongsFragment extends Fragment {
                     if (which == 0) {
                         convert(source);
                     } else if (which == 1) {
-                        requireActivity().getSupportFragmentManager()
-                                .beginTransaction()
-                                .replace(R.id.fragmentContainer,
-                                        SongDetailFragment.newInstance(song.getFilePath(), song.getTitle()))
-                                .addToBackStack(null)
-                                .commit();
+                        Anim.openDetail(requireActivity(),
+                                SongDetailFragment.newInstance(song.getFilePath(), song.getTitle()));
                     } else {
                         confirmDelete(song, source);
                     }

@@ -5,21 +5,26 @@
     <item
         android:id="@+id/nav_tuner"
         android:title="Тюнер"
-        android:icon="@android:drawable/ic_btn_speak_now"/>
+        android:icon="@drawable/ic_nav_tuner"/>
 
     <item
         android:id="@+id/nav_lessons"
         android:title="Уроки"
-        android:icon="@android:drawable/ic_menu_agenda"/>
+        android:icon="@drawable/ic_nav_lessons"/>
 
     <item
         android:id="@+id/nav_trainer"
         android:title="Ноты"
-        android:icon="@android:drawable/ic_menu_view"/>
+        android:icon="@drawable/ic_nav_notes"/>
 
     <item
         android:id="@+id/nav_songs"
         android:title="Песни"
-        android:icon="@android:drawable/ic_media_play"/>
+        android:icon="@drawable/ic_nav_songs"/>
+
+    <item
+        android:id="@+id/nav_metronome"
+        android:title="Метроном"
+        android:icon="@drawable/ic_nav_metronome"/>
 
 </menu>

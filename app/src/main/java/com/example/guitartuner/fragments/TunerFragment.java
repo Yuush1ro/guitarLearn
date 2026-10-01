@@ -9,6 +9,11 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.RelativeSizeSpan;
+
+import com.example.guitartuner.ui.Anim;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -78,6 +83,7 @@ public class TunerFragment extends Fragment {
             }
         });
 
+        Anim.cascadeIn(view.findViewById(R.id.tunerContent));
         return view;
     }
 
@@ -90,12 +96,12 @@ public class TunerFragment extends Fragment {
 
         lastMidi = Integer.MIN_VALUE;
         pitchDetector.start();
-        btnToggle.setText("STOP");
+        btnToggle.setText("СТОП");
     }
 
     private void stopTuner() {
         pitchDetector.stop();
-        if (btnToggle != null) btnToggle.setText("START");
+        if (btnToggle != null) btnToggle.setText("СТАРТ");
     }
 
     // вызывается в главном потоке (так гарантирует PitchDetector)
@@ -111,7 +117,12 @@ public class TunerFragment extends Fragment {
         }
 
         tunerView.setCents((float) smoothedCents);
-        textView.setText(String.format(Locale.US, "%s\n%.1f Hz", note.fullName, freq));
+        // нота крупно, частота — мелкой строкой под ней
+        String hz = String.format(Locale.US, "%.1f Гц", freq);
+        SpannableString text = new SpannableString(note.fullName + "\n" + hz);
+        text.setSpan(new RelativeSizeSpan(0.32f), note.fullName.length() + 1, text.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        textView.setText(text);
     }
 
     @Override

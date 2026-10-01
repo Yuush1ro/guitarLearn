@@ -53,10 +53,21 @@ public class TabView extends View {
     private final Paint currentPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint chordBarPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint borderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint upcomingStrokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint doneTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint upcomingTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint currentTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint hitPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint missPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint resultTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF rect = new RectF();
+
+    /** Результат шага (для игры под метроном). */
+    public static final byte RESULT_NONE = 0;
+    public static final byte RESULT_HIT = 1;
+    public static final byte RESULT_MISS = 2;
+    private byte[] results;
 
     private String[] stringLabels = STANDARD_LABELS;
     private List<TabNote> notes = new ArrayList<>();
@@ -93,28 +104,39 @@ public class TabView extends View {
         noteSpacingPx = NOTE_SPACING_DP * density;
         touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
 
-        backgroundPaint.setColor(Color.parseColor("#263238"));
+        // неоновая палитра: тёмная лента, светящийся оранжевый
+        backgroundPaint.setColor(Color.parseColor("#0C0F15"));
+        borderPaint.setStyle(Paint.Style.STROKE);
+        borderPaint.setStrokeWidth(dp(1));
+        borderPaint.setColor(Color.parseColor("#40FF8A1F"));
 
-        stringPaint.setColor(Color.parseColor("#78909C"));
+        stringPaint.setColor(Color.parseColor("#3A4250"));
 
-        labelPaint.setColor(Color.parseColor("#B0BEC5"));
+        labelPaint.setColor(Color.parseColor("#8B95A5"));
         labelPaint.setTextAlign(Paint.Align.CENTER);
         labelPaint.setTextSize(dp(13));
         labelPaint.setFakeBoldText(true);
 
-        playheadGlowPaint.setColor(Color.argb(45, 255, 152, 0));
-        playheadPaint.setColor(Color.parseColor("#FF9800"));
+        playheadGlowPaint.setColor(Color.argb(50, 255, 138, 31));
+        playheadPaint.setColor(Color.parseColor("#FF8A1F"));
         playheadPaint.setStrokeWidth(dp(2));
 
-        donePaint.setColor(Color.parseColor("#455A64"));
-        upcomingPaint.setColor(Color.parseColor("#90CAF9"));
-        currentPaint.setColor(Color.parseColor("#FF9800"));
-        glowPaint.setColor(Color.parseColor("#FF9800"));
+        donePaint.setColor(Color.parseColor("#262C37"));
+        upcomingPaint.setColor(Color.parseColor("#1A1F2A"));
+        upcomingStrokePaint.setStyle(Paint.Style.STROKE);
+        upcomingStrokePaint.setStrokeWidth(dp(1.5f));
+        upcomingStrokePaint.setColor(Color.parseColor("#B3FF8A1F"));
+        currentPaint.setColor(Color.parseColor("#FF8A1F"));
+        glowPaint.setColor(Color.parseColor("#FF8A1F"));
 
-        doneTextPaint.setColor(Color.parseColor("#90A4AE"));
-        upcomingTextPaint.setColor(Color.parseColor("#0D47A1"));
-        currentTextPaint.setColor(Color.BLACK);
-        for (Paint p : new Paint[]{doneTextPaint, upcomingTextPaint, currentTextPaint}) {
+        hitPaint.setColor(Color.parseColor("#3DFF8E"));
+        missPaint.setColor(Color.parseColor("#FF3D71"));
+
+        doneTextPaint.setColor(Color.parseColor("#6B7380"));
+        upcomingTextPaint.setColor(Color.parseColor("#FFC48A"));
+        currentTextPaint.setColor(Color.parseColor("#1C0B00"));
+        resultTextPaint.setColor(Color.parseColor("#07090D"));
+        for (Paint p : new Paint[]{doneTextPaint, upcomingTextPaint, currentTextPaint, resultTextPaint}) {
             p.setTextAlign(Paint.Align.CENTER);
             p.setFakeBoldText(true);
         }
@@ -145,6 +167,24 @@ public class TabView extends View {
         if (dragging) return;
         targetScrollPx = scrollForIndex(index);
         scheduleFrame();
+    }
+
+    /** Результаты шагов: RESULT_HIT — зелёный, RESULT_MISS — красный. null — не показывать. */
+    public void setStepResults(byte[] results) {
+        this.results = results;
+        invalidate();
+    }
+
+    /**
+     * Плавное положение ленты по времени (игра под метроном): 3.5 — посередине
+     * между шагами 3 и 4. Отрицательное — отсчёт перед первой нотой.
+     */
+    public void setContinuousPosition(float position) {
+        if (dragging) return;
+        float clamped = Math.max(-1f, Math.min(maxIndex(), position));
+        animatedScrollPx = clamped * noteSpacingPx;
+        targetScrollPx = animatedScrollPx;
+        invalidate();
     }
 
     public void setOnSeekListener(OnSeekListener listener) {
@@ -250,7 +290,9 @@ public class TabView extends View {
 
         // фон ленты
         rect.set(0, 0, width, height);
-        canvas.drawRoundRect(rect, dp(12), dp(12), backgroundPaint);
+        canvas.drawRoundRect(rect, dp(16), dp(16), backgroundPaint);
+        rect.inset(dp(0.5f), dp(0.5f));
+        canvas.drawRoundRect(rect, dp(16), dp(16), borderPaint);
 
         float gutter = dp(28);
         float top = dp(16);
@@ -280,15 +322,16 @@ public class TabView extends View {
             if (x < gutter - radius * 2 || x > width + radius * 2) continue;
 
             TabNote step = notes.get(i);
+            byte result = results != null && i < results.length ? results[i] : RESULT_NONE;
             Paint fill;
             Paint textPaint;
             float r = radius;
             if (i == currentIndex) {
-                fill = currentPaint;
+                fill = result == RESULT_HIT ? hitPaint : currentPaint;
                 textPaint = currentTextPaint;
             } else if (i < currentIndex) {
-                fill = donePaint;
-                textPaint = doneTextPaint;
+                fill = result == RESULT_HIT ? hitPaint : result == RESULT_MISS ? missPaint : donePaint;
+                textPaint = result == RESULT_NONE ? doneTextPaint : resultTextPaint;
                 r = radius * 0.8f;
             } else {
                 fill = upcomingPaint;
@@ -326,6 +369,8 @@ public class TabView extends View {
     private void drawNote(Canvas canvas, float x, float y, float radius, String text,
                           Paint fill, Paint textPaint) {
         canvas.drawCircle(x, y, radius, fill);
+        // следующие ноты — тёмные с неоновой обводкой
+        if (fill == upcomingPaint) canvas.drawCircle(x, y, radius, upcomingStrokePaint);
         textPaint.setTextSize(radius * 1.1f);
         canvas.drawText(text, x, y + textPaint.getTextSize() / 3f, textPaint);
     }

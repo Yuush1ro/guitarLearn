@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Фон экранов: почти чёрный, сверху тёплое неоновое свечение -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/gt_background"/>
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:centerX="0.5"
+                android:centerY="0"
+                android:gradientRadius="420dp"
+                android:startColor="#2EFF8A1F"
+                android:endColor="#00FF8A1F"/>
+        </shape>
+    </item>
+</layer-list>

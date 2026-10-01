@@ -2,4 +2,32 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- Неоновая палитра: почти чёрный фон, тёмные карточки, светящийся оранжевый -->
+    <color name="gt_background">#07090D</color>
+    <color name="gt_surface_container">#10141B</color>
+    <color name="gt_surface_container_high">#181D27</color>
+    <color name="gt_on_surface">#F1F3F7</color>
+    <color name="gt_on_surface_variant">#9AA4B2</color>
+    <color name="gt_outline">#2A3140</color>
+    <color name="gt_navigation">#0B0E14</color>
+
+    <color name="gt_primary">#FF8A1F</color>
+    <color name="gt_on_primary">#1C0B00</color>
+    <color name="gt_primary_container">#3D1E05</color>
+    <color name="gt_on_primary_container">#FFC48A</color>
+
+    <color name="gt_secondary">#FFB15C</color>
+    <color name="gt_on_secondary">#2A1500</color>
+    <color name="gt_secondary_container">#24170B</color>
+    <color name="gt_on_secondary_container">#FFCF99</color>
+
+    <!-- неоновая обводка карточек и свечение -->
+    <color name="gt_card_stroke">#40FF8A1F</color>
+    <color name="gt_glow">#CCFF8A1F</color>
+    <color name="gt_glow_soft">#66FF8A1F</color>
+
+    <!-- результаты нот -->
+    <color name="gt_hit">#3DFF8E</color>
+    <color name="gt_miss">#FF3D71</color>
 </resources>

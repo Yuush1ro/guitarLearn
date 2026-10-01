@@ -1,9 +1,134 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="Base.Theme.GuitarTuner" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+
+    <!-- Неоновая тёмная тема (всегда тёмная — неон смотрится только на тёмном фоне) -->
+    <style name="Base.Theme.GuitarTuner" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/gt_primary</item>
+        <item name="colorOnPrimary">@color/gt_on_primary</item>
+        <item name="colorPrimaryContainer">@color/gt_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/gt_on_primary_container</item>
+        <item name="colorSecondary">@color/gt_secondary</item>
+        <item name="colorOnSecondary">@color/gt_on_secondary</item>
+        <item name="colorSecondaryContainer">@color/gt_secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/gt_on_secondary_container</item>
+
+        <item name="android:colorBackground">@color/gt_background</item>
+        <item name="colorSurface">@color/gt_background</item>
+        <item name="colorOnSurface">@color/gt_on_surface</item>
+        <item name="colorOnSurfaceVariant">@color/gt_on_surface_variant</item>
+        <item name="colorSurfaceContainer">@color/gt_surface_container</item>
+        <item name="colorSurfaceContainerLow">@color/gt_surface_container</item>
+        <item name="colorSurfaceContainerHigh">@color/gt_surface_container_high</item>
+        <item name="colorSurfaceContainerHighest">@color/gt_surface_container_high</item>
+        <item name="colorOutline">@color/gt_outline</item>
+        <item name="colorOutlineVariant">@color/gt_outline</item>
+
+        <!-- фон экрана: чёрный с тёплым неоновым свечением сверху -->
+        <item name="android:windowBackground">@drawable/bg_screen</item>
+        <item name="android:statusBarColor">@color/gt_background</item>
+        <item name="android:navigationBarColor">@color/gt_navigation</item>
+        <item name="android:windowLightStatusBar">false</item>
+
+        <item name="materialButtonStyle">@style/Widget.GuitarTuner.Button</item>
+        <item name="chipStyle">@style/Widget.GuitarTuner.Chip</item>
     </style>
 
     <style name="Theme.GuitarTuner" parent="Base.Theme.GuitarTuner" />
+
+    <!-- ===== Карточки и текст ===== -->
+
+    <!-- Карточка-блок с тонкой неоновой обводкой -->
+    <style name="Widget.GuitarTuner.Card" parent="Widget.Material3.CardView.Filled">
+        <item name="cardBackgroundColor">?attr/colorSurfaceContainer</item>
+        <item name="cardCornerRadius">22dp</item>
+        <item name="contentPadding">16dp</item>
+        <item name="strokeColor">@color/gt_card_stroke</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="android:layout_marginBottom">12dp</item>
+    </style>
+
+    <!-- Заголовок экрана -->
+    <style name="TextAppearance.GuitarTuner.ScreenTitle" parent="TextAppearance.Material3.HeadlineSmall">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">0.02</item>
+    </style>
+
+    <!-- Заголовок блока: мелкий, неоновый, прописными, со свечением -->
+    <style name="TextAppearance.GuitarTuner.CardTitle" parent="TextAppearance.Material3.LabelLarge">
+        <item name="android:textColor">?attr/colorPrimary</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:letterSpacing">0.14</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:shadowColor">@color/gt_glow_soft</item>
+        <item name="android:shadowRadius">12</item>
+    </style>
+
+    <!-- Подпись поля внутри блока -->
+    <style name="TextAppearance.GuitarTuner.Label" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <!-- Пояснение мелким шрифтом -->
+    <style name="TextAppearance.GuitarTuner.Hint" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <!-- Крупная нота / аккорд / темп — неоновый текст со свечением -->
+    <style name="TextAppearance.GuitarTuner.BigNote" parent="TextAppearance.Material3.DisplayLarge">
+        <item name="android:textColor">?attr/colorPrimary</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:shadowColor">@color/gt_glow</item>
+        <item name="android:shadowRadius">28</item>
+        <item name="android:shadowDx">0</item>
+        <item name="android:shadowDy">0</item>
+    </style>
+
+    <!-- ===== Кнопки и чипы ===== -->
+
+    <style name="Widget.GuitarTuner.Button" parent="Widget.Material3.Button">
+        <item name="cornerRadius">16dp</item>
+    </style>
+
+    <!-- Главная кнопка экрана: яркий неон со свечением (тень цветом акцента на Android 9+) -->
+    <style name="Widget.GuitarTuner.NeonButton" parent="Widget.Material3.Button">
+        <item name="backgroundTint">?attr/colorPrimary</item>
+        <item name="android:textColor">?attr/colorOnPrimary</item>
+        <item name="cornerRadius">18dp</item>
+        <item name="android:textAppearance">?attr/textAppearanceTitleMedium</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">0.12</item>
+        <item name="android:elevation">12dp</item>
+        <item name="android:outlineAmbientShadowColor" tools:targetApi="p">@color/gt_primary</item>
+        <item name="android:outlineSpotShadowColor" tools:targetApi="p">@color/gt_primary</item>
+    </style>
+
+    <!-- Круглая кнопка −/+ -->
+    <style name="Widget.GuitarTuner.RoundButton" parent="Widget.Material3.Button.TonalButton">
+        <item name="cornerRadius">24dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:minHeight">0dp</item>
+        <item name="android:paddingStart">0dp</item>
+        <item name="android:paddingEnd">0dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:textSize">20sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="Widget.GuitarTuner.Chip" parent="Widget.Material3.Chip.Filter">
+        <item name="chipStrokeColor">@color/gt_card_stroke</item>
+    </style>
+
+    <!-- ===== Нижняя панель ===== -->
+
+    <style name="Widget.GuitarTuner.BottomNavigation" parent="Widget.Material3.BottomNavigationView">
+        <item name="backgroundTint">@color/gt_navigation</item>
+        <item name="itemIconTint">@color/nav_item_tint</item>
+        <item name="itemTextColor">@color/nav_item_tint</item>
+        <item name="itemActiveIndicatorStyle">@style/Widget.GuitarTuner.NavIndicator</item>
+    </style>
+
+    <style name="Widget.GuitarTuner.NavIndicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
+        <item name="android:color">@color/gt_primary_container</item>
+    </style>
 </resources>

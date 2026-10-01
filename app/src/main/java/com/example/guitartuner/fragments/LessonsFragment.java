@@ -13,6 +13,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.example.guitartuner.R;
 import com.example.guitartuner.adapters.LessonsAdapter;
 import com.example.guitartuner.models.LessonLibrary;
+import com.example.guitartuner.ui.Anim;
 
 public class LessonsFragment extends Fragment {
 
@@ -24,15 +25,8 @@ public class LessonsFragment extends Fragment {
         RecyclerView recyclerView = view.findViewById(R.id.recyclerLessons);
         recyclerView.setLayoutManager(new LinearLayoutManager(getContext()));
 
-        LessonsAdapter adapter = new LessonsAdapter(LessonLibrary.all(), lesson -> {
-            LessonDetailFragment detailFragment = LessonDetailFragment.newInstance(lesson);
-            requireActivity()
-                    .getSupportFragmentManager()
-                    .beginTransaction()
-                    .replace(R.id.fragmentContainer, detailFragment)
-                    .addToBackStack(null)
-                    .commit();
-        });
+        LessonsAdapter adapter = new LessonsAdapter(LessonLibrary.all(), lesson ->
+                Anim.openDetail(requireActivity(), LessonDetailFragment.newInstance(lesson)));
 
         recyclerView.setAdapter(adapter);
 

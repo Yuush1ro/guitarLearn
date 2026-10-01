@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Метроном: корпус-трапеция и маятник -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineJoin="round"
+        android:fillColor="#00000000" android:pathData="M9,3h6l4,18H5z"/>
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineCap="round"
+        android:fillColor="#00000000" android:pathData="M12,17L16.5,7"/>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M5.8,17.5h12.4v1.8H5.8z"/>
+</vector>

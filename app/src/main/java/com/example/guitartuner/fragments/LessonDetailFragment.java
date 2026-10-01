@@ -5,7 +5,6 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
-import android.os.SystemClock;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -21,27 +20,39 @@ import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 
 import com.example.guitartuner.R;
+import com.example.guitartuner.audio.AudioEngine;
 import com.example.guitartuner.models.Lesson;
 import com.example.guitartuner.models.LessonLibrary;
+import com.example.guitartuner.models.PlayTiming;
 import com.example.guitartuner.models.TabNote;
+import com.example.guitartuner.practice.StepMatcher;
+import com.example.guitartuner.practice.TimedMatcher;
 import com.example.guitartuner.songs.SongStore;
-import com.example.guitartuner.tuner.ChordMatcher;
+import com.example.guitartuner.tuner.AudioFrame;
 import com.example.guitartuner.tuner.NoteUtils;
 import com.example.guitartuner.tuner.PitchDetector;
+import com.example.guitartuner.ui.Anim;
 import com.example.guitartuner.utils.GuitarNoteUtils;
 import com.example.guitartuner.views.FretboardView;
 import com.example.guitartuner.views.TabView;
 import com.google.android.material.button.MaterialButtonToggleGroup;
+import com.google.android.material.materialswitch.MaterialSwitch;
+import com.google.android.material.progressindicator.LinearProgressIndicator;
 import com.google.android.material.slider.RangeSlider;
 import com.google.android.material.slider.Slider;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
- * Прохождение урока: нужно по очереди сыграть ноты урока (точная высота, с октавой).
- * Ноты показываются бегущей лентой или на грифе — вид переключается.
+ * Прохождение урока или песни. Ноты показываются бегущей лентой или на грифе.
+ *
+ * Два режима:
+ *  - "Свой темп": урок ждёт, пока нота (точная высота, с октавой) или аккорд сыграны верно;
+ *  - "Под метроном": ноты идут во времени по темпу песни (или 1 нота = 1 доля для уроков),
+ *    вовремя сыгранные засчитываются, пропущенные отмечаются красным.
  */
 public class LessonDetailFragment extends Fragment {
 
@@ -51,20 +62,25 @@ public class LessonDetailFragment extends Fragment {
     private static final String ARG_REGION_SELECTABLE = "arg_region_selectable";
     private static final String ARG_SONG_PATH = "arg_song_path";
 
-    // сколько мс подряд нужно слышать верную ноту, чтобы засчитать
-    private static final long HOLD_MS = 120;
-    // защита от повторного засчитывания сразу после попадания
-    private static final long ADVANCE_COOLDOWN_MS = 250;
-    // во сколько раз должна вырасти громкость, чтобы считать это новым щипком струны
-    private static final double ATTACK_RATIO = 1.5;
-    // аккорд засчитывается после стольких кадров подряд (~46 мс каждый) с совпадением
-    private static final int CHORD_FRAMES = 2;
+    // под метрономом подсвечиваем ноту чуть раньше её времени — чтобы успеть сыграть
+    private static final double DISPLAY_EARLY_MS = 60;
+    // такт отсчёта перед стартом под метроном
+    private static final int COUNT_IN_BEATS = 4;
+
+    private static final double MIN_SPEED = 0.25;
+    private static final double MAX_SPEED = 2.0;
+    private static final double SPEED_STEP = 0.05;
 
     private static final String PREFS = "lessons";
     private static final String KEY_VIEW_MODE = "view_mode_fretboard";
+    private static final String KEY_PLAY_MODE = "play_mode_metronome";
+    private static final String KEY_CLICKS = "metronome_clicks";
+    private static final String KEY_VOICE = "metronome_voice";
+    private static final String KEY_SPEED_PREFIX = "speed_";
     private static final String KEY_REGION_START = "chromatic_region_start";
     private static final String KEY_REGION_END = "chromatic_region_end";
 
+    // ---------- views ----------
     private TextView titleView;
     private MaterialButtonToggleGroup toggleViewMode;
     private View regionPanel;
@@ -74,66 +90,72 @@ public class LessonDetailFragment extends Fragment {
     private TextView textPosition;
     private TextView textHeard;
     private TextView textProgress;
+    private TextView textStats;
+    private LinearProgressIndicator progressLesson;
     private TabView tabView;
     private FretboardView fretboardView;
-    private Button btnPlay;
-    private View flashOverlay;
     private View seekPanel;
     private Slider seekSlider;
+    private MaterialButtonToggleGroup togglePlayMode;
+    private TextView textModeHint;
+    private View tempoPanel;
+    private TextView textTempo;
+    private TextView textTempoInfo;
+    private MaterialSwitch switchClicks;
+    private MaterialSwitch switchVoice;
+    private Button btnPlay;
+    private View flashOverlay;
 
+    // ---------- данные урока / песни ----------
     private String title;
     private List<TabNote> notes = new ArrayList<>();
     private boolean regionSelectable;
     private int regionStart = LessonLibrary.DEFAULT_REGION_START;
     private int regionEnd = LessonLibrary.DEFAULT_REGION_END;
-
     // для песен: подписи струн по строю и сколько ладов показывать на грифе
     private String[] stringLabels;
     private int fretCount = FretboardView.FRET_COUNT;
     // для песен: номер такта (с 0) каждого шага; null — тактов нет (уроки, старые песни)
     private int[] bars;
+    // время нот из файла песни; null — уроки и старые песни (тогда 1 нота = 1 доля)
+    private PlayTiming songTiming;
+    private PlayTiming lessonTiming;
+    // ключ для запоминания скорости: имя файла песни или "lessons"
+    private String speedKey = "lessons";
 
+    // ---------- состояние игры ----------
     private int currentIndex = 0;
-    private long correctSince = 0L;
-    private long lastAdvanceTime = 0L;
+    private int lastShownIndex = -1;
 
-    // следующая нота совпадает с только что сыгранной: ждём нового щипка струны,
-    // иначе ещё звучащая струна засчитала бы её сама
-    private boolean needsReattack = false;
-    private double minLevelSinceAdvance = Double.MAX_VALUE;
+    // результаты шагов (StepMatcher.HIT/MISS — те же значения, что TabView.RESULT_*)
+    private byte[] results = new byte[0];
+    private int hits = 0;
+    private int misses = 0;
 
-    // сколько кадров подряд хромаграмма совпадает с ожидаемым аккордом
-    private int chordMatchedFrames = 0;
+    // сопоставление сыгранного с нотами: "свой темп" и "под метроном"
+    private StepMatcher freeMatcher;
+    private TimedMatcher timedMatcher;
+
+    private boolean metronomeMode = false;
+    private double speed = 1.0;
+    // идёт игра под метроном (транспорт звука запущен)
+    private boolean timedRunning = false;
+    // идёт такт отсчёта перед первой нотой
+    private boolean countingIn = false;
+    private int runStartIndex = 0;
+
+    private final AudioEngine audioEngine = new AudioEngine();
 
     // хромаграмма нужна для аккордов — считаем её всегда, это один FFT на кадр
     private final PitchDetector pitchDetector = new PitchDetector(new PitchDetector.PitchListener() {
         @Override
         public void onPitchDetected(double frequencyHz) {
-            // не вызывается: PitchDetector передаёт и громкость
+            // не вызывается: кадры целиком приходят в onFrame
         }
 
         @Override
-        public void onPitchDetected(double frequencyHz, double level) {
-            onPitch(frequencyHz, level);
-        }
-
-        @Override
-        public void onChroma(double[] chroma, double level) {
-            onChromaFrame(chroma, level);
-        }
-
-        @Override
-        public void onNoPitch() {
-            // для аккорда это нормально: YIN не находит одну ноту, работает хромаграмма
-            correctSince = 0L;
-        }
-
-        @Override
-        public void onSilence() {
-            correctSince = 0L;
-            chordMatchedFrames = 0;
-            // струна затихла — следующий звук точно новый щипок
-            needsReattack = false;
+        public void onFrame(AudioFrame frame) {
+            onAudioFrame(frame);
         }
     }, true);
 
@@ -147,6 +169,18 @@ public class LessonDetailFragment extends Fragment {
                             Toast.LENGTH_SHORT).show();
                 }
             });
+
+    // кадр игры под метроном: двигает ленту по времени, отмечает пропущенные ноты
+    private final Runnable timedFrame = new Runnable() {
+        @Override
+        public void run() {
+            if (!timedRunning || tabView == null) return;
+            onTimedFrame();
+            if (timedRunning) tabView.postOnAnimation(this);
+        }
+    };
+
+    // ---------- создание ----------
 
     public static LessonDetailFragment newInstance(Lesson lesson) {
         LessonDetailFragment fragment = new LessonDetailFragment();
@@ -208,9 +242,11 @@ public class LessonDetailFragment extends Fragment {
                 }
             }
         }
+        onNotesChanged();
     }
 
     private void loadSong(File file) {
+        speedKey = file.getName();
         SongStore.ConvertedSong song = SongStore.load(file);
         if (song == null) {
             title = "Не удалось открыть песню";
@@ -220,6 +256,7 @@ public class LessonDetailFragment extends Fragment {
         title = song.trackName.isEmpty() ? song.title : song.title + " · " + song.trackName;
         notes = song.notes;
         bars = song.bars;
+        songTiming = song.timing;
 
         stringLabels = new String[song.tuning.length];
         for (int i = 0; i < song.tuning.length; i++) {
@@ -233,6 +270,21 @@ public class LessonDetailFragment extends Fragment {
             for (TabNote note : step.getNotes()) maxFret = Math.max(maxFret, note.getFret());
         }
         fretCount = maxFret;
+    }
+
+    /** Ноты урока изменились (загрузка, смена участка): сбрасываем результаты и время. */
+    private void onNotesChanged() {
+        results = new byte[notes.size()];
+        hits = 0;
+        misses = 0;
+        currentIndex = 0;
+        lessonTiming = PlayTiming.evenBeats(notes.size(), PlayTiming.LESSON_BPM);
+        freeMatcher = new StepMatcher(notes, results);
+        timedMatcher = new TimedMatcher(notes, timing(), results);
+    }
+
+    private PlayTiming timing() {
+        return songTiming != null ? songTiming : lessonTiming;
     }
 
     @Override
@@ -249,29 +301,41 @@ public class LessonDetailFragment extends Fragment {
         textPosition = view.findViewById(R.id.textPosition);
         textHeard = view.findViewById(R.id.textHeard);
         textProgress = view.findViewById(R.id.textProgress);
+        textStats = view.findViewById(R.id.textStats);
+        progressLesson = view.findViewById(R.id.progressLesson);
         tabView = view.findViewById(R.id.tabView);
         fretboardView = view.findViewById(R.id.fretboardView);
-        btnPlay = view.findViewById(R.id.btnPlayLesson);
-        flashOverlay = view.findViewById(R.id.flashOverlay);
         seekPanel = view.findViewById(R.id.seekPanel);
         seekSlider = view.findViewById(R.id.seekSlider);
+        togglePlayMode = view.findViewById(R.id.togglePlayMode);
+        textModeHint = view.findViewById(R.id.textModeHint);
+        tempoPanel = view.findViewById(R.id.tempoPanel);
+        textTempo = view.findViewById(R.id.textTempo);
+        textTempoInfo = view.findViewById(R.id.textTempoInfo);
+        switchClicks = view.findViewById(R.id.switchClicks);
+        switchVoice = view.findViewById(R.id.switchVoice);
+        btnPlay = view.findViewById(R.id.btnPlayLesson);
+        flashOverlay = view.findViewById(R.id.flashOverlay);
 
         titleView.setText(title);
         tabView.setStringLabels(stringLabels);
         tabView.setNotes(notes);
+        tabView.setStepResults(results);
         fretboardView.setFretCount(fretCount);
 
         setupSeek(view);
-
         setupViewModeToggle();
         setupRegion();
+        setupPlayMode(view);
 
         btnPlay.setOnClickListener(v -> {
             if (pitchDetector.isRunning()) pauseLesson();
             else startLesson();
         });
+        view.findViewById(R.id.btnListen).setOnClickListener(v -> listenCurrent());
 
         updateLessonUi();
+        Anim.cascadeIn(view.findViewById(R.id.lessonContent));
         return view;
     }
 
@@ -349,17 +413,94 @@ public class LessonDetailFragment extends Fragment {
                 .apply();
 
         notes = LessonLibrary.chromaticCascade(start, end);
-        currentIndex = 0;
+        onNotesChanged();
         tabView.setNotes(notes);
+        tabView.setStepResults(results);
         configureSeek();
         textHeard.setText("Нажмите ИГРАТЬ");
         updateRegionLabel();
+        updateTempoUi();
         updateLessonUi();
     }
 
     private void updateRegionLabel() {
-        textRegion.setText("Участок: лады " + regionStart + "–" + regionEnd
-                + " · " + notes.size() + " нот. Двигайте ползунок или нажмите на гриф");
+        textRegion.setText("Лады " + regionStart + "–" + regionEnd + " · " + notes.size()
+                + " нот. Двигайте ползунок или нажмите на гриф (в виде «Гриф»)");
+    }
+
+    // ---------- режим: свой темп / под метроном ----------
+
+    private void setupPlayMode(View view) {
+        SharedPreferences p = prefs();
+        metronomeMode = p.getBoolean(KEY_PLAY_MODE, false);
+        speed = clampSpeed(p.getFloat(KEY_SPEED_PREFIX + speedKey, 1f));
+        switchClicks.setChecked(p.getBoolean(KEY_CLICKS, true));
+        switchVoice.setChecked(p.getBoolean(KEY_VOICE, false));
+
+        togglePlayMode.check(metronomeMode ? R.id.btnModeMetronome : R.id.btnModeFree);
+        togglePlayMode.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
+            if (!isChecked) return;
+            boolean metronome = checkedId == R.id.btnModeMetronome;
+            if (metronome == metronomeMode) return;
+            pauseLesson();
+            metronomeMode = metronome;
+            prefs().edit().putBoolean(KEY_PLAY_MODE, metronome).apply();
+            updateTempoUi();
+            updateLessonUi();
+        });
+
+        view.findViewById(R.id.btnTempoDown).setOnClickListener(v -> setSpeed(speed - SPEED_STEP));
+        view.findViewById(R.id.btnTempoUp).setOnClickListener(v -> setSpeed(speed + SPEED_STEP));
+        view.findViewById(R.id.chipSpeed50).setOnClickListener(v -> setSpeed(0.5));
+        view.findViewById(R.id.chipSpeed75).setOnClickListener(v -> setSpeed(0.75));
+        view.findViewById(R.id.chipSpeed100).setOnClickListener(v -> setSpeed(1.0));
+
+        switchClicks.setOnCheckedChangeListener((b, checked) -> {
+            prefs().edit().putBoolean(KEY_CLICKS, checked).apply();
+            restartTimedIfRunning();
+        });
+        switchVoice.setOnCheckedChangeListener((b, checked) -> {
+            prefs().edit().putBoolean(KEY_VOICE, checked).apply();
+            restartTimedIfRunning();
+        });
+
+        updateTempoUi();
+    }
+
+    private static double clampSpeed(double value) {
+        // округляем до шага, чтобы не копилась погрешность от + / −
+        double rounded = Math.round(value / SPEED_STEP) * SPEED_STEP;
+        return Math.max(MIN_SPEED, Math.min(MAX_SPEED, rounded));
+    }
+
+    private void setSpeed(double value) {
+        speed = clampSpeed(value);
+        prefs().edit().putFloat(KEY_SPEED_PREFIX + speedKey, (float) speed).apply();
+        updateTempoUi();
+        restartTimedIfRunning();
+    }
+
+    private void updateTempoUi() {
+        tempoPanel.setVisibility(metronomeMode ? View.VISIBLE : View.GONE);
+
+        if (!metronomeMode) {
+            textModeHint.setText("Урок ждёт, пока вы сыграете подсвеченную ноту верно");
+            return;
+        }
+
+        PlayTiming timing = timing();
+        int bpm = (int) Math.round(timing.baseBpm * speed);
+        textTempo.setText(bpm + " BPM");
+        int percent = (int) Math.round(speed * 100);
+        if (songTiming != null) {
+            textTempoInfo.setText("скорость " + percent + "% · темп песни " + Math.round(timing.baseBpm) + " BPM");
+            textModeHint.setText("Ноты идут в темпе песни — играйте вовремя. Перед стартом звучит такт отсчёта");
+        } else {
+            textTempoInfo.setText("скорость " + percent + "% · одна нота на долю");
+            textModeHint.setText(bars != null || stringLabels != null
+                    ? "В песне нет данных о темпе: долгое нажатие на песню → «Выбрать другую партию», чтобы сконвертировать заново"
+                    : "Ноты идут по одной на долю метронома. Перед стартом звучит такт отсчёта");
+        }
     }
 
     // ---------- перемотка ----------
@@ -400,17 +541,15 @@ public class LessonDetailFragment extends Fragment {
         seekSlider.setValueTo(notes.size() - 1);
     }
 
-    /** Перейти к шагу index: урок продолжится с него (если идёт — сразу слушаем эту ноту). */
+    /** Перейти к шагу index: урок продолжится с него (если идёт — сразу с этого места). */
     private void seekTo(int index) {
         if (notes.isEmpty()) return;
         currentIndex = Math.max(0, Math.min(notes.size() - 1, index));
-        correctSince = 0L;
-        chordMatchedFrames = 0;
-        needsReattack = false;
-        // ещё звучащая прежняя нота не должна сразу засчитать новую
-        lastAdvanceTime = SystemClock.elapsedRealtime();
+        freeMatcher.seek(currentIndex);
+        clearResultsFrom(currentIndex);
 
         if (pitchDetector.isRunning()) {
+            if (timedRunning) startTimedTransport();
             textHeard.setText("Сыграйте подсвеченную ноту");
         } else {
             btnPlay.setText("ИГРАТЬ");
@@ -463,7 +602,7 @@ public class LessonDetailFragment extends Fragment {
         return String.valueOf(index + 1);
     }
 
-    // ---------- урок ----------
+    // ---------- старт / стоп ----------
 
     private boolean isComplete() {
         return currentIndex >= notes.size();
@@ -482,24 +621,151 @@ public class LessonDetailFragment extends Fragment {
             currentIndex = 0;
             tabView.setNotes(notes);
         }
+        clearResultsFrom(currentIndex);
+        freeMatcher.seek(currentIndex);
 
-        correctSince = 0L;
-        needsReattack = false;
-        chordMatchedFrames = 0;
         pitchDetector.start();
         tabView.setPlaying(true);
         btnPlay.setText("СТОП");
-        textHeard.setText("Сыграйте подсвеченную ноту");
+
+        if (metronomeMode) {
+            runStartIndex = currentIndex;
+            startTimedTransport();
+            timedRunning = true;
+            tabView.postOnAnimation(timedFrame);
+            textHeard.setText("Приготовьтесь…");
+        } else {
+            textHeard.setText("Сыграйте подсвеченную ноту");
+        }
         updateLessonUi();
     }
 
     private void pauseLesson() {
         pitchDetector.stop();
+        if (timedRunning) {
+            timedRunning = false;
+            audioEngine.stopTransport();
+        }
         if (btnPlay == null) return;
 
         tabView.setPlaying(false);
+        // лента встаёт ровно на текущую ноту
+        tabView.setCurrentIndex(currentIndex);
         btnPlay.setText(isComplete() ? "ЕЩЁ РАЗ" : "ИГРАТЬ");
     }
+
+    private void clearResultsFrom(int from) {
+        for (int i = Math.max(0, from); i < results.length; i++) results[i] = StepMatcher.NONE;
+        recountResults();
+        tabView.setStepResults(results);
+    }
+
+    private void recountResults() {
+        hits = 0;
+        misses = 0;
+        for (byte r : results) {
+            if (r == StepMatcher.HIT) hits++;
+            else if (r == StepMatcher.MISS) misses++;
+        }
+    }
+
+    // ---------- игра под метроном ----------
+
+    /** Запускает звук (отсчёт, щелчки, озвучку нот) с текущей ноты. */
+    private void startTimedTransport() {
+        PlayTiming timing = timing();
+        int from = Math.min(currentIndex, notes.size() - 1);
+        runStartIndex = from;
+        countingIn = true;
+        double startMs = timing.stepStart[from];
+        double beatMs = timing.beatMs();
+
+        // такт отсчёта + щелчки песни начиная с этой ноты
+        List<Double> times = new ArrayList<>();
+        List<Boolean> accents = new ArrayList<>();
+        for (int k = COUNT_IN_BEATS; k >= 1; k--) {
+            times.add(startMs - k * beatMs);
+            accents.add(k == COUNT_IN_BEATS);
+        }
+        if (switchClicks.isChecked()) {
+            double end = timing.endMs();
+            for (int i = 0; i < timing.clickTimes.length; i++) {
+                double t = timing.clickTimes[i];
+                if (t >= startMs - 1 && t <= end) {
+                    times.add(t);
+                    accents.add(timing.clickAccents[i]);
+                }
+            }
+        }
+
+        double[] clickTimes = new double[times.size()];
+        boolean[] clickAccents = new boolean[times.size()];
+        for (int i = 0; i < clickTimes.length; i++) {
+            clickTimes[i] = times.get(i);
+            clickAccents[i] = accents.get(i);
+        }
+
+        AudioEngine.Schedule schedule = new AudioEngine.Schedule(clickTimes, clickAccents,
+                switchVoice.isChecked() ? timing.stepStart : null, notes);
+        timedMatcher.reset(from);
+        audioEngine.stopTransport();
+        audioEngine.startTransport(schedule, startMs - COUNT_IN_BEATS * beatMs, speed);
+    }
+
+    private void restartTimedIfRunning() {
+        if (timedRunning) startTimedTransport();
+    }
+
+    private void onTimedFrame() {
+        double songMs = audioEngine.getSongTimeMs();
+        if (Double.isNaN(songMs)) return;
+        PlayTiming timing = timing();
+
+        tabView.setContinuousPosition(timing.positionAt(songMs));
+
+        double startMs = timing.stepStart[runStartIndex];
+        // отсчёт идёт, пока до первой ноты больше, чем допуск "можно сыграть раньше"
+        if (songMs < startMs - 150 * speed) {
+            int beatsLeft = (int) Math.ceil((startMs - songMs) / timing.beatMs());
+            textHeard.setText("Отсчёт: " + Math.max(1, beatsLeft));
+            return;
+        }
+        if (countingIn) {
+            countingIn = false;
+            textHeard.setText("Играйте!");
+        }
+
+        // окна прошедших нот закрываются — несыгранные становятся промахами
+        boolean changed = timedMatcher.onTick(songMs, speed);
+        if (timedMatcher.isFinished() || songMs > timing.endMs() + 1000) {
+            finishTimed();
+            return;
+        }
+
+        int index = Math.max(runStartIndex, timing.indexAt(songMs, DISPLAY_EARLY_MS * speed));
+        if (index != currentIndex || changed) {
+            currentIndex = index;
+            recountResults();
+            updateLessonUi();
+        }
+    }
+
+    private void finishTimed() {
+        for (int i = runStartIndex; i < results.length; i++) {
+            if (results[i] == StepMatcher.NONE) results[i] = StepMatcher.MISS;
+        }
+        recountResults();
+        currentIndex = notes.size();
+        pauseLesson();
+
+        int played = hits + misses;
+        int percent = played == 0 ? 0 : Math.round(hits * 100f / played);
+        textHeard.setText("Готово! Вовремя сыграно " + hits + " из " + played + " (" + percent + "%)");
+        flash(0.6f, 700);
+        updateLessonUi();
+    }
+
+    // ---------- отображение ----------
 
     private void updateLessonUi() {
         TabNote current = isComplete() ? null : notes.get(currentIndex);
@@ -510,86 +776,105 @@ public class LessonDetailFragment extends Fragment {
             // длинные подписи (ноты аккорда без названия) не влезают крупным шрифтом
             textCurrentNote.setTextSize(TypedValue.COMPLEX_UNIT_SP, name.length() <= 5 ? 72 : 36);
             textCurrentNote.setText(name);
+            // новая нота "подпрыгивает" — глазу проще заметить смену
+            if (currentIndex != lastShownIndex) Anim.pop(textCurrentNote);
             textPosition.setText(current.isChord()
                     ? "Аккорд: " + current.notesListing()
                     : "Струна " + current.getStringNumber() + " · лад " + current.getFret());
         } else {
             textCurrentNote.setTextSize(TypedValue.COMPLEX_UNIT_SP, 72);
             textCurrentNote.setText("✓");
-            textPosition.setText("Урок пройден!");
+            textPosition.setText(notes.isEmpty() ? "" : "Пройдено!");
         }
+
+        lastShownIndex = currentIndex;
         textProgress.setText(progressText(currentIndex));
+        progressLesson.setMax(Math.max(1, notes.size()));
+        progressLesson.setProgressCompat(Math.min(currentIndex, notes.size()), true);
+        updateStats();
+
         if (notes.size() >= 2) {
             seekSlider.setValue(Math.min(currentIndex, notes.size() - 1));
         }
 
         tabView.setCurrentIndex(currentIndex);
+        tabView.setStepResults(results);
         fretboardView.setLessonMarkers(current, next);
     }
 
-    // вызывается в главном потоке (так гарантирует PitchDetector)
-    private void onPitch(double frequencyHz, double level) {
-        if (isComplete()) return;
-        TabNote expected = notes.get(currentIndex);
-        // аккорды проверяются по хромаграмме в onChromaFrame
-        if (expected.isChord()) return;
-
-        long now = SystemClock.elapsedRealtime();
-        if (now - lastAdvanceTime < ADVANCE_COOLDOWN_MS) return;
-
-        NoteUtils.NoteInfo detected = NoteUtils.frequencyToNote(frequencyHz);
-        if (detected == null) return;
-
-        if (waitingForReattack(level)) return;
-        textHeard.setText("Слышу: " + detected.fullName);
-
-        if (detected.midi != expected.getMidi()) {
-            correctSince = 0L;
-            return;
-        }
-
-        if (correctSince == 0L) {
-            correctSince = now;
-        } else if (now - correctSince >= HOLD_MS) {
-            advance(now);
+    private void updateStats() {
+        int played = hits + misses;
+        if (played == 0) {
+            textStats.setText("");
+        } else if (misses == 0) {
+            textStats.setText("Верно " + hits);
+        } else {
+            int percent = Math.round(hits * 100f / played);
+            textStats.setText("Верно " + hits + " · Мимо " + misses + " · " + percent + "%");
         }
     }
 
-    // вызывается в главном потоке (так гарантирует PitchDetector)
-    private void onChromaFrame(double[] chroma, double level) {
-        if (isComplete()) return;
-        TabNote expected = notes.get(currentIndex);
-        if (!expected.isChord()) return;
+    // ---------- звук ----------
 
-        long now = SystemClock.elapsedRealtime();
-        if (now - lastAdvanceTime < ADVANCE_COOLDOWN_MS) return;
-
-        if (waitingForReattack(level)) return;
-        textHeard.setText("Слышу: " + describeChroma(chroma));
-
-        if (!ChordMatcher.matches(chroma, expected.getPitchClasses())) {
-            chordMatchedFrames = 0;
-            return;
-        }
-        chordMatchedFrames++;
-        if (chordMatchedFrames >= CHORD_FRAMES) advance(now);
+    /** Проиграть текущую ноту или аккорд — "как это должно звучать". */
+    private void listenCurrent() {
+        if (notes.isEmpty()) return;
+        TabNote step = notes.get(Math.min(currentIndex, notes.size() - 1));
+        audioEngine.playStep(step);
     }
 
-    /**
-     * Следующий шаг совпадает с только что сыгранным: ждём, пока громкость упадёт
-     * и снова резко вырастет (новый удар по струнам). true — пока ждём.
-     */
-    private boolean waitingForReattack(double level) {
-        if (!needsReattack) return false;
-        minLevelSinceAdvance = Math.min(minLevelSinceAdvance, level);
-        if (level < minLevelSinceAdvance * ATTACK_RATIO) {
-            textHeard.setText(notes.get(currentIndex).isChord()
-                    ? "Сыграйте этот аккорд ещё раз"
-                    : "Сыграйте эту ноту ещё раз");
-            return true;
+    // ---------- распознавание ----------
+
+    // вызывается в главном потоке (так гарантирует PitchDetector), ~раз в 23 мс
+    private void onAudioFrame(AudioFrame frame) {
+        // звучит подсказка из динамика — это не игра пользователя
+        if (audioEngine.isPreviewPlaying() || isComplete()) return;
+        showHeard(frame);
+
+        if (metronomeMode) {
+            if (!timedRunning || countingIn) return;
+            double songMs = audioEngine.getSongTimeMs();
+            if (Double.isNaN(songMs)) return;
+            if (timedMatcher.onFrame(frame, songMs, speed)) {
+                // под метроном шаги сменяет время — здесь только отмечаем попадание
+                recountResults();
+                flash(0.3f, 250);
+                textHeard.setText("Верно!");
+                updateLessonUi();
+            }
+            return;
         }
-        needsReattack = false;
-        return false;
+
+        if (!freeMatcher.onFrame(frame)) {
+            if (freeMatcher.isWaitingForOnset()) {
+                textHeard.setText(notes.get(currentIndex).isChord()
+                        ? "Сыграйте этот аккорд ещё раз"
+                        : "Сыграйте эту ноту ещё раз");
+            }
+            return;
+        }
+
+        currentIndex = freeMatcher.index();
+        recountResults();
+        if (isComplete()) {
+            flash(0.6f, 700);
+            pauseLesson();
+            textHeard.setText("Отлично! Все ноты сыграны");
+        } else {
+            flash(0.35f, 300);
+        }
+        updateLessonUi();
+    }
+
+    /** "Слышу: …" — что сейчас звучит. */
+    private void showHeard(AudioFrame frame) {
+        if (frame.silent) return;
+        TabNote expected = notes.get(Math.min(currentIndex, notes.size() - 1));
+        if (expected.isChord() && frame.chroma != null) {
+            textHeard.setText("Слышу: " + describeChroma(frame.chroma));
+        } else if (frame.frequency > 0) {
+            textHeard.setText("Слышу: " + GuitarNoteUtils.midiToName(frame.midi()));
+        }
     }
 
     /** Самые громкие ноты хромаграммы, например "E B G#". */
@@ -609,32 +894,6 @@ public class LessonDetailFragment extends Fragment {
         return sb.length() > 0 ? sb.toString() : "…";
     }
 
-    private void advance(long now) {
-        TabNote played = notes.get(currentIndex);
-        currentIndex++;
-        correctSince = 0L;
-        chordMatchedFrames = 0;
-        lastAdvanceTime = now;
-
-        needsReattack = !isComplete() && isSameStep(played, notes.get(currentIndex));
-        minLevelSinceAdvance = Double.MAX_VALUE;
-
-        if (isComplete()) {
-            flash(0.6f, 700);
-            pauseLesson();
-            textHeard.setText("Отлично! Все ноты сыграны");
-        } else {
-            flash(0.35f, 350);
-        }
-        updateLessonUi();
-    }
-
-    // тот же аккорд (по набору нот) или та же нота (точная высота)
-    private static boolean isSameStep(TabNote a, TabNote b) {
-        if (a.isChord() != b.isChord()) return false;
-        return a.isChord() ? a.samePitchClasses(b) : a.getMidi() == b.getMidi();
-    }
-
     private void flash(float alpha, long durationMs) {
         flashOverlay.animate().cancel();
         flashOverlay.setAlpha(alpha);
@@ -650,14 +909,17 @@ public class LessonDetailFragment extends Fragment {
     @Override
     public void onPause() {
         super.onPause();
-        // не держим микрофон, когда экран не виден
+        // не держим микрофон и звук, когда экран не виден
         pauseLesson();
+        audioEngine.release();
     }
 
     @Override
     public void onDestroyView() {
         super.onDestroyView();
         pitchDetector.stop();
+        timedRunning = false;
         btnPlay = null;
+        tabView = null;
     }
 }

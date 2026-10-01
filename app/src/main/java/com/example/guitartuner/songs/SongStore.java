@@ -2,6 +2,7 @@ package com.example.guitartuner.songs;
 
 import android.content.Context;
 
+import com.example.guitartuner.models.PlayTiming;
 import com.example.guitartuner.models.TabNote;
 
 import org.json.JSONArray;
@@ -26,9 +27,9 @@ import java.util.List;
  */
 public final class SongStore {
 
-    // версия 2: шаги могут быть аккордами; версия 3: у шагов есть номер такта.
-    // Версию 1 (без аккордов) конвертируем заново, версия 2 читается, но без тактов.
-    private static final int FORMAT_VERSION = 3;
+    // версия 2: шаги могут быть аккордами; 3: номер такта; 4: время нот, темп и метроном.
+    // Версию 1 (без аккордов) конвертируем заново, версии 2–3 читаются без того, чего в них нет.
+    private static final int FORMAT_VERSION = 4;
     private static final int MIN_SUPPORTED_VERSION = 2;
 
     /** Сконвертированная песня: одна дорожка как последовательность нот и аккордов. */
@@ -40,13 +41,17 @@ public final class SongStore {
         public final List<TabNote> notes;
         // номер такта (с 0) для каждого шага; null — неизвестно (старый формат)
         public final int[] bars;
+        // время нот и метроном; null — неизвестно (старый формат)
+        public final PlayTiming timing;
 
-        public ConvertedSong(String title, String trackName, int[] tuning, List<TabNote> notes, int[] bars) {
+        public ConvertedSong(String title, String trackName, int[] tuning, List<TabNote> notes,
+                             int[] bars, PlayTiming timing) {
             this.title = title;
             this.trackName = trackName;
             this.tuning = tuning;
             this.notes = notes;
             this.bars = bars;
+            this.timing = timing;
         }
 
         public int chordCount() {
@@ -106,6 +111,10 @@ public final class SongStore {
                 String chordName = step.isChord() ? step.getChordName() : null;
                 if (chordName != null) jsonStep.put("c", chordName);
                 if (song.bars != null) jsonStep.put("b", song.bars[s]);
+                if (song.timing != null) {
+                    jsonStep.put("t", song.timing.stepStart[s]);
+                    jsonStep.put("d", song.timing.stepDuration[s]);
+                }
                 steps.put(jsonStep);
             }
 
@@ -115,6 +124,16 @@ public final class SongStore {
                     .put("track", song.trackName)
                     .put("tuning", tuning)
                     .put("steps", steps);
+
+            if (song.timing != null) {
+                JSONArray clicks = new JSONArray();
+                for (int i = 0; i < song.timing.clickTimes.length; i++) {
+                    clicks.put(new JSONArray()
+                            .put(song.timing.clickTimes[i])
+                            .put(song.timing.clickAccents[i] ? 1 : 0));
+                }
+                root.put("tempo", song.timing.baseBpm).put("clicks", clicks);
+            }
 
             try (OutputStream out = new FileOutputStream(file)) {
                 out.write(root.toString().getBytes(StandardCharsets.UTF_8));
@@ -145,10 +164,20 @@ public final class SongStore {
             List<TabNote> steps = new ArrayList<>(jsonSteps.length());
             int[] bars = new int[jsonSteps.length()];
             boolean hasBars = true;
+            double[] starts = new double[jsonSteps.length()];
+            double[] durations = new double[jsonSteps.length()];
+            JSONArray jsonClicks = root.optJSONArray("clicks");
+            boolean hasTiming = jsonClicks != null;
             for (int i = 0; i < jsonSteps.length(); i++) {
                 JSONObject jsonStep = jsonSteps.getJSONObject(i);
                 if (jsonStep.has("b")) bars[i] = jsonStep.getInt("b");
                 else hasBars = false;
+                if (jsonStep.has("t")) {
+                    starts[i] = jsonStep.getDouble("t");
+                    durations[i] = jsonStep.getDouble("d");
+                } else {
+                    hasTiming = false;
+                }
                 JSONArray jsonNotes = jsonStep.getJSONArray("n");
                 List<TabNote> notes = new ArrayList<>(jsonNotes.length());
                 for (int j = 0; j < jsonNotes.length(); j++) {
@@ -158,8 +187,21 @@ public final class SongStore {
                 steps.add(TabNote.chord(notes, jsonStep.optString("c", "")));
             }
 
+            PlayTiming timing = null;
+            if (hasTiming) {
+                double[] clickTimes = new double[jsonClicks.length()];
+                boolean[] clickAccents = new boolean[clickTimes.length];
+                for (int i = 0; i < clickTimes.length; i++) {
+                    JSONArray click = jsonClicks.getJSONArray(i);
+                    clickTimes[i] = click.getDouble(0);
+                    clickAccents[i] = click.getInt(1) == 1;
+                }
+                timing = new PlayTiming(root.optDouble("tempo", 120), starts, durations,
+                        clickTimes, clickAccents);
+            }
+
             return new ConvertedSong(root.optString("title"), root.optString("track"), tuning, steps,
-                    hasBars ? bars : null);
+                    hasBars ? bars : null, timing);
         } catch (IOException | JSONException e) {
             return null;
         }

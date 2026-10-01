@@ -7,11 +7,8 @@ import android.os.Handler;
 import android.os.Looper;
 
 /**
- * Определение высоты звука с микрофона алгоритмом YIN.
- *
- * YIN ищет период сигнала, а не самый громкий пик спектра, поэтому не путает
- * основной тон с гармониками (низкая E2 больше не определяется как E3/B3).
- * Для аккордов (несколько нот сразу) дополнительно считается хромаграмма.
+ * Запись с микрофона и анализ звука (см. FrameAnalyzer): тон, громкость, атака, хромаграмма.
+ * Новый кадр — каждые ~23 мс.
  *
  * Колбэки слушателя приходят в главном потоке и только пока детектор запущен —
  * после stop() ни один колбэк уже не будет вызван.
@@ -44,25 +41,25 @@ public class PitchDetector {
          */
         default void onChroma(double[] chroma, double level) {
         }
+
+        /** Весь кадр целиком. По умолчанию раскладывается на колбэки выше. */
+        default void onFrame(AudioFrame frame) {
+            if (frame.silent) {
+                onSilence();
+                return;
+            }
+            if (frame.chroma != null) onChroma(frame.chroma, frame.level);
+            if (frame.frequency > 0) onPitchDetected(frame.frequency, frame.level);
+            else onNoPitch();
+        }
     }
 
-    private static final int SAMPLE_RATE = 44100;
-
-    // окно анализа в сэмплах (~93 мс) — хватает на несколько периодов низкой E2 (82 Гц)
-    private static final int WINDOW_SIZE = 4096;
-    // шаг между окнами в сэмплах (~46 мс) — окна перекрываются наполовину
-    private static final int HOP_SIZE = 2048;
-    // окно для хромаграммы (~186 мс): длиннее, чтобы различать низкие ноты аккорда в спектре
-    private static final int CHROMA_WINDOW_SIZE = 8192;
-
-    // диапазон поиска: чуть ниже E2 (82 Гц) .. выше 20-го лада первой струны (~1319 Гц)
-    private static final double MIN_FREQ = 60.0;
-    private static final double MAX_FREQ = 1400.0;
-
-    // порог YIN: чем меньше, тем строже требование к "периодичности" сигнала
-    private static final double YIN_THRESHOLD = 0.15;
-    // порог тишины по RMS (сэмплы нормированы в -1..1)
-    private static final double SILENCE_RMS = 0.01;
+    // источники по порядку предпочтения: VOICE_RECOGNITION на большинстве телефонов
+    // идёт без автоусиления и шумоподавления, которые сглаживают атаку струны
+    private static final int[] AUDIO_SOURCES = {
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            MediaRecorder.AudioSource.MIC
+    };
 
     private final PitchListener listener;
     private final boolean computeChroma;
@@ -90,6 +87,7 @@ public class PitchDetector {
     public void start() {
         if (thread != null) return;
         Thread t = new Thread(this::recordLoop, "PitchDetector");
+        t.setPriority(Thread.MAX_PRIORITY);
         thread = t;
         t.start();
     }
@@ -108,31 +106,16 @@ public class PitchDetector {
 
     private void recordLoop() {
         Thread self = Thread.currentThread();
+        int sampleRate = FrameAnalyzer.SAMPLE_RATE;
+        int hopSize = FrameAnalyzer.HOP_SIZE;
 
         int minBufferBytes = AudioRecord.getMinBufferSize(
-                SAMPLE_RATE,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT
-        );
+                sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
         // getMinBufferSize возвращает БАЙТЫ; 1 сэмпл PCM16 = 2 байта
-        int bufferBytes = Math.max(minBufferBytes, WINDOW_SIZE * 2 * 2);
+        int bufferBytes = Math.max(minBufferBytes, hopSize * 2 * 4);
 
-        AudioRecord audioRecord;
-        try {
-            audioRecord = new AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
-                    SAMPLE_RATE,
-                    AudioFormat.CHANNEL_IN_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                    bufferBytes
-            );
-        } catch (SecurityException | IllegalArgumentException e) {
-            stopFromWorker(self);
-            return;
-        }
-
-        if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
-            audioRecord.release();
+        AudioRecord audioRecord = openRecord(sampleRate, bufferBytes);
+        if (audioRecord == null) {
             stopFromWorker(self);
             return;
         }
@@ -140,36 +123,18 @@ public class PitchDetector {
         try {
             audioRecord.startRecording();
 
-            short[] hop = new short[HOP_SIZE];
-            // последние CHROMA_WINDOW_SIZE сэмплов; для YIN берём их хвост длиной WINDOW_SIZE
-            float[] history = new float[CHROMA_WINDOW_SIZE];
-            float[] window = new float[WINDOW_SIZE];
-            Yin yin = new Yin(SAMPLE_RATE, WINDOW_SIZE, MIN_FREQ, MAX_FREQ);
-            ChromaAnalyzer chromaAnalyzer =
-                    computeChroma ? new ChromaAnalyzer(SAMPLE_RATE, CHROMA_WINDOW_SIZE) : null;
-            int filled = 0;
+            short[] raw = new short[hopSize];
+            float[] hop = new float[hopSize];
+            FrameAnalyzer analyzer = new FrameAnalyzer(computeChroma);
 
             while (isActive(self)) {
-                int read = readFully(audioRecord, hop, self);
+                int read = readFully(audioRecord, raw, self);
                 if (read < 0) break;
                 if (read == 0) continue;
 
-                // сдвигаем историю влево и дописываем новые сэмплы в конец
-                System.arraycopy(history, read, history, 0, CHROMA_WINDOW_SIZE - read);
-                for (int i = 0; i < read; i++) {
-                    history[CHROMA_WINDOW_SIZE - read + i] = hop[i] / 32768f;
-                }
-                filled = Math.min(CHROMA_WINDOW_SIZE, filled + read);
-                if (filled < WINDOW_SIZE) continue;
-
-                System.arraycopy(history, CHROMA_WINDOW_SIZE - WINDOW_SIZE, window, 0, WINDOW_SIZE);
-
-                boolean silent = rms(window, 0) < SILENCE_RMS;
-                double freq = silent ? -1 : yin.detect(window);
-                double[] chroma = !silent && chromaAnalyzer != null && filled == CHROMA_WINDOW_SIZE
-                        ? chromaAnalyzer.analyze(history) : null;
-                // громкость только свежих сэмплов — быстрее реагирует на новый щипок струны
-                deliver(self, silent, freq, rms(window, WINDOW_SIZE - read), chroma);
+                for (int i = 0; i < read; i++) hop[i] = raw[i] / 32768f;
+                AudioFrame frame = analyzer.process(hop, read);
+                if (frame != null) deliver(self, frame);
             }
         } catch (IllegalStateException ignored) {
         } finally {
@@ -180,6 +145,19 @@ public class PitchDetector {
             audioRecord.release();
             stopFromWorker(self);
         }
+    }
+
+    private static AudioRecord openRecord(int sampleRate, int bufferBytes) {
+        for (int source : AUDIO_SOURCES) {
+            try {
+                AudioRecord record = new AudioRecord(source, sampleRate,
+                        AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferBytes);
+                if (record.getState() == AudioRecord.STATE_INITIALIZED) return record;
+                record.release();
+            } catch (SecurityException | IllegalArgumentException ignored) {
+            }
+        }
+        return null;
     }
 
     /** Читает до buffer.length сэмплов; -1 при ошибке AudioRecord. */
@@ -193,91 +171,15 @@ public class PitchDetector {
         return total;
     }
 
-    private void deliver(Thread self, boolean silent, double freq, double level, double[] chroma) {
+    private void deliver(Thread self, AudioFrame frame) {
         if (listener == null) return;
         mainHandler.post(() -> {
             // stop() мог быть вызван, пока колбэк стоял в очереди
-            if (!isActive(self)) return;
-            if (silent) {
-                listener.onSilence();
-                return;
-            }
-            if (chroma != null) listener.onChroma(chroma, level);
-            if (freq > 0) listener.onPitchDetected(freq, level);
-            else listener.onNoPitch();
+            if (isActive(self)) listener.onFrame(frame);
         });
     }
 
     private void stopFromWorker(Thread self) {
         if (thread == self) thread = null;
-    }
-
-    /** RMS сэмплов data[from..конец]. */
-    private static double rms(float[] data, int from) {
-        double sum = 0;
-        for (int i = from; i < data.length; i++) sum += data[i] * data[i];
-        return Math.sqrt(sum / (data.length - from));
-    }
-
-    /** Реализация YIN (de Cheveigné & Kawahara, 2002) с переиспользуемым буфером. */
-    static final class Yin {
-
-        private final int sampleRate;
-        private final int tauMin;
-        private final int tauMax;
-        private final int integrationWindow;
-        private final double[] diff;
-
-        Yin(int sampleRate, int windowSize, double minFreq, double maxFreq) {
-            this.sampleRate = sampleRate;
-            this.tauMin = Math.max(2, (int) Math.floor(sampleRate / maxFreq));
-            this.tauMax = Math.min(windowSize / 2, (int) Math.ceil(sampleRate / minFreq));
-            this.integrationWindow = windowSize - tauMax;
-            this.diff = new double[tauMax + 1];
-        }
-
-        /** Частота основного тона в Гц или -1, если чёткого тона нет. */
-        double detect(float[] x) {
-            // 1. разностная функция d(tau)
-            for (int tau = 1; tau <= tauMax; tau++) {
-                double sum = 0;
-                for (int j = 0; j < integrationWindow; j++) {
-                    double delta = x[j] - x[j + tau];
-                    sum += delta * delta;
-                }
-                diff[tau] = sum;
-            }
-
-            // 2. кумулятивная нормализация d'(tau)
-            diff[0] = 1;
-            double runningSum = 0;
-            for (int tau = 1; tau <= tauMax; tau++) {
-                runningSum += diff[tau];
-                diff[tau] = runningSum == 0 ? 1 : diff[tau] * tau / runningSum;
-            }
-
-            // 3. первый провал ниже порога, затем спуск к его локальному минимуму
-            int tau = -1;
-            for (int t = tauMin; t <= tauMax; t++) {
-                if (diff[t] < YIN_THRESHOLD) {
-                    while (t + 1 <= tauMax && diff[t + 1] < diff[t]) t++;
-                    tau = t;
-                    break;
-                }
-            }
-            if (tau < 0) return -1;
-
-            // 4. параболическая интерполяция для суб-сэмпловой точности
-            double betterTau = tau;
-            if (tau < tauMax) {
-                double s0 = diff[tau - 1];
-                double s1 = diff[tau];
-                double s2 = diff[tau + 1];
-                double denom = s0 - 2 * s1 + s2;
-                if (denom != 0) betterTau = tau + 0.5 * (s0 - s2) / denom;
-            }
-
-            return sampleRate / betterTau;
-        }
     }
 }
